@@ -1,0 +1,21 @@
+command:
+  - python
+  - -m
+  - uvicorn
+  - app:app
+  - --host
+  - "0.0.0.0"
+  - --port
+  - "8000"
+
+resources:
+  - name: ocr-pat-secret
+    description: "PAT for calling OCR serving endpoint"
+    secret:
+      scope: pedro-zanela-scope
+      key: techfin-ocr-pat
+      permission: READ
+
+env:
+  - name: WAREHOUSE_ID
+    value: "862f1d757f0424f7"

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# Databricks CLI state
+.databricks/
+
+# IDE
+.vscode/
+.idea/
+*.DS_Store
+
+# Secrets / credentials
+.databrickscfg
+*.token
