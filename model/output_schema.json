@@ -1,0 +1,1142 @@
+{
+  "type": "array",
+  "description": "Lista de demonstrativos financeiros extraídos. Cada elemento representa uma combinação única de (tipo_entidade, periodo) encontrada no documento. Um PDF pode gerar múltiplos elementos: ex. Consolidado 2024-12-31, Controladora 2024-12-31, Consolidado 2023-12-31, etc.",
+  "items": {
+    "type": "object",
+    "properties": {
+      "tipo_entidade": {
+        "description": "Tipo de entidade contábil. Use CONSOLIDADO para demonstrativos que consolidam controladas/coligadas, CONTROLADORA para a entidade isolada (sem consolidação). Se o documento tiver apenas uma perspectiva sem rótulo explícito, use INDIVIDUAL.",
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "razao_social": {
+        "description": "Nome legal completo da empresa ou entidade analisada (razão social). Geralmente localizado no topo do documento.",
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "cnpj": {
+        "description": "CNPJ da empresa. Extrair com pontuação se possível.",
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "identificacao": {
+        "type": "object",
+        "description": "Identificação dos metadados do demonstrativo financeiro.",
+        "properties": {
+          "periodo": {
+            "description": "Data de referência de encerramento do exercício da coluna sendo lida. Formato estrito: YYYY-MM-DD.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tipo_demonstrativo": {
+            "description": "Tipo de consolidação. Identificar se é CONSOLIDADO ou INDIVIDUAL (ANUAL ou TRIMESTRAL). Se não explícito, assumir INDIVIDUAL.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "moeda": {
+            "description": "Moeda utilizada (ex.: REAL, BRL, USD).",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "escala_valores": {
+            "description": "Escala dos valores numéricos. Regra: Se o documento disser 'Em milhares' ou '(R$ 1.000)', preencha MILHARES. Se disser 'Em milhões', MILHOES. Se for o valor exato, UNIDADE.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "periodo",
+          "tipo_demonstrativo",
+          "moeda",
+          "escala_valores"
+        ]
+      },
+      "ativo_circulante": {
+        "type": "object",
+        "description": "Bens e direitos realizáveis no curto prazo (até 12 meses).",
+        "properties": {
+          "disponibilidades": {
+            "description": "Dinheiro vivo e liquidez imediata",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "titulos_a_receber": {
+            "description": "O que clientes devem por vendas a prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estoques": {
+            "description": "Bens para venda, matérias-primas e insumos",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adiantamentos": {
+            "description": "Valores pagos antecipadamente a terceiros",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impostos_a_recuperar": {
+            "description": "Créditos tributários de curto prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outros_ativos_circulantes": {
+            "description": "Outros direitos diversos de curto prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conta_corrente_socios_control_colig": {
+            "description": "Mútuos ativos (créditos) com partes relacionadas",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outros_ativos_financeiros": {
+            "description": "Aplicações ou investimentos com restrição de saque",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_ativo_circulante": {
+            "description": "Soma total de todos os itens que compõem o ativo circulante.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "disponibilidades",
+          "titulos_a_receber",
+          "estoques",
+          "adiantamentos",
+          "impostos_a_recuperar",
+          "outros_ativos_circulantes",
+          "conta_corrente_socios_control_colig",
+          "outros_ativos_financeiros",
+          "total_ativo_circulante"
+        ]
+      },
+      "ativo_nao_circulante": {
+        "type": "object",
+        "description": "Direitos realizáveis a longo prazo (após 12 meses).",
+        "properties": {
+          "titulos_a_receber": {
+            "description": "O que clientes devem, vencível a longo prazo (>12m)",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estoques": {
+            "description": "Estoque estratégico de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adiantamentos": {
+            "description": "Adiantamentos a fornecedores de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impostos_a_recuperar": {
+            "description": "Créditos tributários de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "despesas_pagas_antecipadamente": {
+            "description": "Custos pagos com benefício de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conta_corrente_socios_control_colig": {
+            "description": "Mútuos com partes relacionadas (longo prazo)",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outros_realizavel_a_longo_prazo": {
+            "description": "Outros créditos de LP",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_ativo_nao_circulante": {
+            "description": "Total do ativo não circulante (Realizável a Longo Prazo).",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "titulos_a_receber",
+          "estoques",
+          "adiantamentos",
+          "impostos_a_recuperar",
+          "despesas_pagas_antecipadamente",
+          "conta_corrente_socios_control_colig",
+          "outros_realizavel_a_longo_prazo",
+          "total_ativo_nao_circulante"
+        ]
+      },
+      "ativo_permanente": {
+        "type": "object",
+        "description": "Bens e direitos de uso contínuo e estrutural.",
+        "properties": {
+          "investimentos": {
+            "description": "Dinheiro em bens não operacionais",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "imobilizado": {
+            "description": "Bens físicos essenciais à operação",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "intangivel_diferido": {
+            "description": "Bens sem existência física",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_ativo_permanente": {
+            "description": "Soma de Investimentos, Imobilizado e Intangível.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "investimentos",
+          "imobilizado",
+          "intangivel_diferido",
+          "total_ativo_permanente"
+        ]
+      },
+      "ativo_total": {
+        "description": "Soma total do Ativo (Circulante + Não Circulante + Permanente).",
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "passivo_circulante": {
+        "type": "object",
+        "description": "Obrigações exigíveis no curto prazo (até 12 meses).",
+        "properties": {
+          "fornecedores": {
+            "description": "Dívidas comerciais de curto prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "financiamentos_com_instituicoes_de_credito": {
+            "description": "Dívidas bancárias onerosas",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "salarios_contribuicoes": {
+            "description": "Obrigações trabalhistas e encargos",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tributos": {
+            "description": "Obrigações fiscais de curto prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adiantamentos": {
+            "description": "Recebimento antecipado de clientes",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conta_corrente_socios_coligadas_controladas": {
+            "description": "Mútuos passivos (dívidas) com sócios/grupo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outros_passivos_circulante": {
+            "description": "Contas a pagar administrativas/diversas",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provisoes": {
+            "description": "Reservas para riscos prováveis",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outros_passivos_financeiros": {
+            "description": "Dívidas com juros não bancárias",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_passivo_circulante": {
+            "description": "Total das obrigações de curto prazo.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "fornecedores",
+          "financiamentos_com_instituicoes_de_credito",
+          "salarios_contribuicoes",
+          "tributos",
+          "adiantamentos",
+          "conta_corrente_socios_coligadas_controladas",
+          "outros_passivos_circulante",
+          "provisoes",
+          "outros_passivos_financeiros",
+          "total_passivo_circulante"
+        ]
+      },
+      "passivo_nao_circulante": {
+        "type": "object",
+        "description": "Obrigações exigíveis a longo prazo (após 12 meses).",
+        "properties": {
+          "fornecedores": {
+            "description": "Fornecedores a longo prazo (> 12 meses)",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "financiamentos_com_instituicoes_de_credito": {
+            "description": "Empréstimos bancários de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "salarios_contribuicoes": {
+            "description": "Obrigações trabalhistas de longo prazo (ex: acordos parcelados).",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tributos": {
+            "description": "Tributos e parcelamentos fiscais de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adiantamentos": {
+            "description": "Adiantamento de clientes com entrega a longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conta_corrente_socios_coligadas_controladas": {
+            "description": "Mútuos passivos a longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outros_passivos_nao_circulantes": {
+            "description": "Outras obrigações de LP",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provisoes": {
+            "description": "Provisões para contingências de longo prazo",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_passivo_nao_circulante": {
+            "description": "Total das obrigações de longo prazo.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "fornecedores",
+          "financiamentos_com_instituicoes_de_credito",
+          "salarios_contribuicoes",
+          "tributos",
+          "adiantamentos",
+          "conta_corrente_socios_coligadas_controladas",
+          "outros_passivos_nao_circulantes",
+          "provisoes",
+          "total_passivo_nao_circulante"
+        ]
+      },
+      "patrimonio_liquido": {
+        "type": "object",
+        "description": "Capital próprio da empresa e lucros retidos.",
+        "properties": {
+          "capital_social": {
+            "description": "Valor investido pelos sócios",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reserva_de_capital": {
+            "description": "Dinheiro de terceiros sem origem no lucro",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reservas_de_lucro": {
+            "description": "Parte do lucro retido",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reservas_de_reavaliacao": {
+            "description": "Aumento contábil no valor de ativos (antigo)",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outras_reservas": {
+            "description": "Ajustes contábeis diversos",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lucros_ou_prejuizos_acumulados": {
+            "description": "Saldo histórico de resultados",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acoes_em_tesouraria": {
+            "description": "Ações da própria empresa recompradas. (Lançar com sinal negativo)",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_patrimonio_liquido": {
+            "description": "Total do Patrimônio Líquido.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "capital_social",
+          "reserva_de_capital",
+          "reservas_de_lucro",
+          "reservas_de_reavaliacao",
+          "outras_reservas",
+          "lucros_ou_prejuizos_acumulados",
+          "acoes_em_tesouraria",
+          "total_patrimonio_liquido"
+        ]
+      },
+      "passivo_total": {
+        "description": "Soma de Passivo Circulante + Não Circulante + Patrimônio Líquido.",
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "dre": {
+        "type": "object",
+        "description": "Demonstração do Resultado do Exercício (Cascata de resultados).",
+        "properties": {
+          "receita_venda_produto_mercadoria": {
+            "type": "number",
+            "description": "Receita de vendas de produtos e mercadorias"
+          },
+          "receita_servicos_arrendamento": {
+            "type": "number",
+            "description": "Receita de serviços e arrendamento"
+          },
+          "receita_operacional_bruta": {
+            "description": "Receita total da atividade fim",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vendas_anuladas": {
+            "description": "Redutor de receita por cancelamento",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "abatimentos": {
+            "description": "Redutor de receita por descontos comerciais",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impostos_incidentes_sobre_vendas": {
+            "description": "Tributos sobre faturamento",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_deducoes": {
+            "description": "Soma de vendas anuladas, abatimentos e impostos incidentes sobre vendas. (Atenção para sinalização de redutor: Deduções, Deduções da receita operacional bruta, (-) deduções da receita bruta).",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "incentivos_a_exportacoes": {
+            "type": "number",
+            "description": "Incentivos a exportações"
+          },
+          "receita_operacional_liquida": {
+            "description": "Receita Operacional Bruta subtraída do Total de Deduções.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "custo_servicos_produtos_mercadorias_vendidas": {
+            "description": "Custo direto da operação",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "superveniencias_ativas": {
+            "type": "number",
+            "description": "Superveniências ativas (ganhos inesperados que reduzem custo)"
+          },
+          "total_custo": {
+            "type": "number",
+            "description": "Custo total (CMV/CPV/CSP + Superveniências ativas). Soma de custo_servicos_produtos_mercadorias_vendidas e superveniencias_ativas"
+          },
+          "lucro_bruto": {
+            "description": "Receita Operacional Líquida subtraída dos Custos (CMV/CPV/CSP).",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "despesas_com_vendas": {
+            "description": "Gastos para realizar a venda",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provisao_para_devedores_duvidosos": {
+            "description": "Perdas estimadas com calotes",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outras_receitas_despesas_operacionais": {
+            "description": "Resultados periféricos à operação",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "despesas_administrativas": {
+            "description": "Gastos do escritório/gestão",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "despesas_tributarias": {
+            "description": "Impostos que não incidem sobre a venda",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "despesas_gerais": {
+            "description": "Outras despesas operacionais diversas do dia a dia",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "depreciacao": {
+            "description": "Desgaste físico de bens operacionais",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amortizacao": {
+            "description": "Perda de valor de intangíveis operacionais",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_despesas_operacionais": {
+            "description": "Soma de todas as despesas: vendas, PCLD, adm, tributárias, gerais, depreciação/amortização e outras.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lucro_operacional": {
+            "description": "Resultado antes do resultado financeiro e tributos (EBIT).",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "encargos_financeiros": {
+            "type": "number",
+            "description": "Juros e encargos sobre dívidas e financiamentos"
+          },
+          "descontos_concedidos": {
+            "type": "number",
+            "description": "Descontos concedidos a clientes por pagamento antecipado"
+          },
+          "variacao_cambial_nao_paga": {
+            "type": "number",
+            "description": "Variação cambial passiva ou correção monetária não paga"
+          },
+          "despesas_financeiras": {
+            "type": "number",
+            "description": "Total das despesas financeiras (Encargos + Descontos concedidos + Variação cambial não paga)"
+          },
+          "receitas_financeiras": {
+            "type": "number",
+            "description": "Receitas com juros, rendimentos e aplicações financeiras"
+          },
+          "variacao_cambial_nao_recebida": {
+            "type": "number",
+            "description": "Variação cambial ativa ou correção monetária não recebida"
+          },
+          "total_receitas_financeiras": {
+            "type": "number",
+            "description": "Total das receitas financeiras (Receitas financeiras + Variação cambial não recebida)"
+          },
+          "lucro_financeiro": {
+            "type": "number",
+            "description": "Lucro Financeiro (Lucro Operacional - Despesas Financeiras + Receitas Financeiras)"
+          },
+          "resultado_de_equivalencia_patrimonial": {
+            "description": "Resultado gerado por investimentos em controladas/coligadas (positivo ou negativo)",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receita_nao_operacional": {
+            "type": "number",
+            "description": "Receitas não operacionais (fora da atividade fim)"
+          },
+          "despesa_nao_operacional": {
+            "type": "number",
+            "description": "Despesas não operacionais (fora da atividade fim)"
+          },
+          "saldo_correcao_monetaria": {
+            "type": "number",
+            "description": "Saldo de correção monetária do balanço"
+          },
+          "resultado_alienacao_ativos": {
+            "type": "number",
+            "description": "Ganho ou perda na venda de ativos (imobilizado, investimentos)"
+          },
+          "lucro_antes_imposto_de_renda": {
+            "description": "LAIR. Lucro Operacional +/- Resultado Financeiro +/- Equivalência/Não Operacionais.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provisao_imposto_de_renda": {
+            "type": "number",
+            "description": "Provisão para Imposto de Renda (IRPJ). Inclui IR corrente e IR diferido"
+          },
+          "csll": {
+            "type": "number",
+            "description": "Contribuição Social sobre o Lucro Líquido. Inclui CSLL corrente e diferida"
+          },
+          "lucro_antes_participacoes": {
+            "type": "number",
+            "description": "Lucro antes das participações (LAIR - IR - CSLL)"
+          },
+          "participacoes_gratificacoes_estatutarias": {
+            "type": "number",
+            "description": "Participações e gratificações estatutárias (funcionários, administradores)"
+          },
+          "lucro_antes_participacao_minoritaria": {
+            "type": "number",
+            "description": "Lucro antes da participação de minoritários"
+          },
+          "participacao_minoritarios": {
+            "type": "number",
+            "description": "Participação de acionistas minoritários no resultado"
+          },
+          "lucro_liquido": {
+            "description": "A 'Última Linha' da DRE. Resultado final do exercício a ser distribuído ou acumulado.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "receita_venda_produto_mercadoria",
+          "receita_servicos_arrendamento",
+          "receita_operacional_bruta",
+          "vendas_anuladas",
+          "abatimentos",
+          "impostos_incidentes_sobre_vendas",
+          "total_deducoes",
+          "incentivos_a_exportacoes",
+          "receita_operacional_liquida",
+          "custo_servicos_produtos_mercadorias_vendidas",
+          "superveniencias_ativas",
+          "total_custo",
+          "lucro_bruto",
+          "despesas_com_vendas",
+          "provisao_para_devedores_duvidosos",
+          "outras_receitas_despesas_operacionais",
+          "despesas_administrativas",
+          "despesas_tributarias",
+          "despesas_gerais",
+          "depreciacao",
+          "amortizacao",
+          "total_despesas_operacionais",
+          "lucro_operacional",
+          "encargos_financeiros",
+          "descontos_concedidos",
+          "variacao_cambial_nao_paga",
+          "despesas_financeiras",
+          "receitas_financeiras",
+          "variacao_cambial_nao_recebida",
+          "total_receitas_financeiras",
+          "lucro_financeiro",
+          "resultado_de_equivalencia_patrimonial",
+          "receita_nao_operacional",
+          "despesa_nao_operacional",
+          "saldo_correcao_monetaria",
+          "resultado_alienacao_ativos",
+          "lucro_antes_imposto_de_renda",
+          "provisao_imposto_de_renda",
+          "csll",
+          "lucro_antes_participacoes",
+          "participacoes_gratificacoes_estatutarias",
+          "lucro_antes_participacao_minoritaria",
+          "participacao_minoritarios",
+          "lucro_liquido"
+        ]
+      },
+      "fontes": {
+        "type": "object",
+        "description": "Mapeamento campo → texto exato do PDF que originou o valor extraído. Ex: \"ativo_circulante.impostos_a_recuperar\": \"Soma de Impostos a recuperar (2.411) + IRPJ e CSLL a compensar (4.596) = 7.007\"",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "tipo_entidade",
+      "razao_social",
+      "cnpj",
+      "identificacao",
+      "ativo_circulante",
+      "ativo_nao_circulante",
+      "ativo_permanente",
+      "ativo_total",
+      "passivo_circulante",
+      "passivo_nao_circulante",
+      "patrimonio_liquido",
+      "passivo_total",
+      "dre"
+    ],
+    "description": "Estrutura para extração de informações de balanços patrimoniais e DRE com regras de mapeamento de contas e conceitos semânticos."
+  }
+}

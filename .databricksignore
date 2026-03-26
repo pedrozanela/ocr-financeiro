@@ -1,0 +1,16 @@
+node_modules/
+.git/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.databricks/
+frontend/node_modules/
+frontend/src/
+frontend/index.html
+frontend/vite.config.ts
+frontend/tsconfig*.json
+frontend/package*.json
+scripts/
+*.md

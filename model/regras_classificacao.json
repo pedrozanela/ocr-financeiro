@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "titulo": "Adiantamentos (AC) → somar em Outros Ativos Circulantes",
+    "regra": "O campo `ativo_circulante.adiantamentos` deve ser SEMPRE ZERO. Todos os valores de adiantamentos do ativo circulante (Adiantamentos a fornecedores, Adiantamentos a funcionários, Adiantamentos a terceiros, Adiantamento férias, etc.) devem ser SOMADOS ao campo `ativo_circulante.outros_ativos_circulantes`."
+  },
+  {
+    "id": 2,
+    "titulo": "Reserva de Lucros → somar em Lucros/Prejuízos Acumulados",
+    "regra": "O campo `patrimonio_liquido.reservas_de_lucro` deve ser SEMPRE ZERO. Todo valor de Reservas de Lucro (Reserva Legal, Reserva Estatutária, Reserva de Lucros a Realizar, Reserva de Retenção de Lucros, etc.) deve ser SOMADO ao campo `patrimonio_liquido.lucros_ou_prejuizos_acumulados`."
+  },
+  {
+    "id": 3,
+    "titulo": "Outros Passivos Financeiros (CP) → somar em Outros Passivos Circulantes",
+    "regra": "O campo `passivo_circulante.outros_passivos_financeiros` deve ser SEMPRE ZERO. Todo valor de Outros Passivos Financeiros circulantes deve ser SOMADO ao campo `passivo_circulante.outros_passivos_circulante`."
+  },
+  {
+    "id": 4,
+    "titulo": "Direito de Uso / Arrendamento (IFRS 16) → Imobilizado",
+    "regra": "Ativos de direito de uso (Right-of-use assets) e arrendamento mercantil devem ser classificados em `ativo_permanente.imobilizado`, NUNCA em `ativo_permanente.intangivel_diferido`. No passivo, obrigações de arrendamento circulante → `passivo_circulante.outros_passivos_circulante`; obrigações de arrendamento não-circulante → `passivo_nao_circulante.outros_passivos_nao_circulantes`."
+  },
+  {
+    "id": 5,
+    "titulo": "Aplicações Financeiras e Consórcios (ANC) → Investimentos",
+    "regra": "Valores de Aplicações Financeiras e Bens em Consórcio que apareçam no Ativo Não Circulante devem ser classificados em `ativo_permanente.investimentos`, NÃO em `ativo_nao_circulante.outros_realizavel_a_longo_prazo`."
+  },
+  {
+    "id": 6,
+    "titulo": "Provisão de Contingências → Provisões (LP)",
+    "regra": "Provisões para contingências (trabalhistas, cíveis, tributárias) devem ir em `passivo_nao_circulante.provisoes`, NÃO em `passivo_nao_circulante.outros_passivos_nao_circulantes`."
+  },
+  {
+    "id": 7,
+    "titulo": "Outras Reservas → Reservas de Reavaliação",
+    "regra": "Valores de 'Ajuste de avaliação patrimonial' ou 'Outros resultados abrangentes' devem ir em `patrimonio_liquido.reservas_de_reavaliacao`, NÃO em `patrimonio_liquido.outras_reservas`. O campo `patrimonio_liquido.outras_reservas` só deve conter valores que não se encaixam em nenhuma outra categoria do PL."
+  },
+  {
+    "id": 8,
+    "titulo": "Despesas Administrativas = líquido de sub-itens",
+    "regra": "Quando o documento apresenta as despesas operacionais detalhadas (Despesas com Vendas, Despesas Tributárias, Despesas Gerais, Depreciação, Amortização, Provisão p/ Dev. Duvidosos), o campo `dre.despesas_administrativas` deve conter APENAS o valor residual de despesas administrativas, SUBTRAINDO os sub-itens que já foram classificados nos campos próprios. Nunca coloque o total agregado de todas as despesas operacionais nesse campo."
+  },
+  {
+    "id": 9,
+    "titulo": "Fornecedores — incluir Fornecedores-Convênio",
+    "regra": "A linha 'Fornecedores - convênio' (ou 'Forfait', 'Risco sacado') deve ser SOMADA ao campo `passivo_circulante.fornecedores`, junto com os fornecedores diretos."
+  },
+  {
+    "id": 10,
+    "titulo": "DRE — sempre usar valor ACUMULADO do período",
+    "regra": "Quando o documento apresenta DRE com colunas trimestrais E acumuladas, SEMPRE extraia o valor ACUMULADO do período completo, não o valor do trimestre isolado. Ex: se há colunas '3T25' e '9M25', use '9M25'. Se há 'Jul-Set/2025' e 'Jan-Set/2025', use 'Jan-Set/2025'."
+  },
+  {
+    "id": 11,
+    "titulo": "Provisão IRPJ e CSLL — separar em dois campos",
+    "regra": "O campo `dre.provisao_imposto_de_renda` deve conter a soma de IRPJ corrente + diferido. O campo `dre.csll` deve conter a soma de CSLL corrente + diferida. Quando o documento apresenta 'IRPJ e CSLL' em uma única linha, dividir proporcionalmente (34% IRPJ / 9% CSLL) ou atribuir o valor inteiro ao campo `dre.provisao_imposto_de_renda` e zero ao `dre.csll`."
+  },
+  {
+    "id": 12,
+    "titulo": "C/C Sócios — incluir Empréstimos a/de sócios",
+    "regra": "Valores de 'Empréstimos a terceiros', 'Empréstimos a sócios', 'Empréstimos a receber LP' devem ser classificados nos campos `conta_corrente_socios_control_colig` (AC ou ANC), não em Outros Ativos Circulantes ou Outros Realizável LP."
+  },
+  {
+    "id": 13,
+    "titulo": "Adiantamentos (LP) → somar em Outros Realizável LP",
+    "regra": "O campo `ativo_nao_circulante.adiantamentos` deve ser SEMPRE ZERO. Todos os valores de adiantamentos do ANC devem ser SOMADOS ao campo `ativo_nao_circulante.outros_realizavel_a_longo_prazo`."
+  },
+  {
+    "id": 14,
+    "titulo": "Receitas/Despesas não-operacionais → campos próprios na DRE",
+    "regra": "Receitas não operacionais devem ir em `dre.receita_nao_operacional`. Despesas não operacionais devem ir em `dre.despesa_nao_operacional`. Resultado Extraordinário Operacional deve ir no campo mais adequado entre receita ou despesa não operacional."
+  }
+]

@@ -1,0 +1,40 @@
+command:
+  - python
+  - -m
+  - uvicorn
+  - app:app
+  - --host
+  - "0.0.0.0"
+  - --port
+  - "8000"
+
+resources:
+  - name: pat-servico
+    description: "PAT do Service Principal para chamar o endpoint OCR"
+    secret:
+      scope: ocr-financeiro
+      key: pat-servico
+      permission: READ
+
+env:
+  # Warehouses
+  - name: WAREHOUSE_ID
+    value: "862f1d757f0424f7"
+  - name: SERVERLESS_WAREHOUSE_ID
+    value: "862f1d757f0424f7"
+  # Unity Catalog
+  - name: UC_CATALOG
+    value: "pedro_zanela"
+  - name: UC_SCHEMA
+    value: "ocr_financeiro"
+  # Serving Endpoint
+  - name: OCR_ENDPOINT
+    value: "extrator-financeiro"
+  # Secrets
+  - name: SECRET_SCOPE
+    value: "ocr-financeiro"
+  - name: SECRET_KEY
+    value: "pat-servico"
+  # Jobs
+  - name: FEWSHOT_JOB_ID
+    value: "249734264921105"

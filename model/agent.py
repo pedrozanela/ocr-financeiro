@@ -1,0 +1,414 @@
+"""
+TechFin OCR v4 - Information Extraction Agent
+Extrai dados financeiros estruturados de documentos (Balanço Patrimonial + DRE).
+
+Melhoria 1: DE-PARA extraído do output_schema.json em runtime e inserido como seção
+dedicada no system prompt, separado da definição estrutural do schema.
+
+Melhoria 2: LLM Judge — segundo modelo avalia a qualidade da extração e sinaliza
+campos com baixa confiança. Resultado armazenado em `_assessment` no JSON.
+
+Code-based MLflow model: https://mlflow.org/docs/latest/models.html#models-from-code
+"""
+import copy
+import json
+import os
+import mlflow
+from mlflow.pyfunc import PythonModel
+
+# ---------------------------------------------------------------------------
+# Instruções de extração
+# ---------------------------------------------------------------------------
+INSTRUCTIONS = (
+    "* O documento pode conter MÚLTIPLAS colunas de dados: diferentes tipos de entidade "
+    "(Consolidado, Controladora/Individual) e/ou diferentes períodos (datas de referência). "
+    "Você DEVE extrair TODAS as combinações presentes, gerando um elemento no array para cada "
+    "combinação única de (tipo_entidade, periodo). Exemplos comuns: "
+    "[Consolidado 2024-12-31, Controladora 2024-12-31], "
+    "[Consolidado 2024-12-31, Consolidado 2023-12-31], "
+    "[Consolidado 2024-12-31, Controladora 2024-12-31, Consolidado 2023-12-31, Controladora 2023-12-31].\n"
+    "* Para cada elemento, preencha `tipo_entidade` com CONSOLIDADO, CONTROLADORA ou INDIVIDUAL, "
+    "conforme o cabeçalho da coluna correspondente no documento.\n"
+    "* Substitua qualquer valor null, vazio ou não informado por zero.\n"
+    "* Formate todos os números para exibir exatamente 2 casas decimais, usando ponto como separador, "
+    "mesmo que o valor seja inteiro ou zero (ex: 834988.00, 0.00, 15.50).\n"
+    "* Preencha o objeto `fontes` no JSON de saída: para cada campo extraído, indique qual texto exato do PDF "
+    "originou o valor. Use o caminho do campo como chave (ex: 'ativo_circulante.impostos_a_recuperar') "
+    "e como valor descreva brevemente: o(s) nome(s) da(s) linha(s) do documento, os valores individuais "
+    "e a operação realizada (ex: soma, leitura direta). "
+    "Exemplo: 'Impostos a recuperar (2.411) + IRPJ e CSLL a compensar (4.596) = 7.007 (escala: milhares)'. "
+    "Se o valor foi lido diretamente de uma única linha, indique apenas o nome da linha e o valor. "
+    "Inclua fontes apenas para campos com valor diferente de zero.\n\n"
+)
+
+JUDGE_SYSTEM_PROMPT = """\
+Você é um auditor especializado em demonstrações financeiras brasileiras.
+Sua tarefa: avaliar a qualidade da extração de dados de um documento financeiro.
+
+Dado o texto do documento e o JSON extraído, identifique campos com possíveis erros.
+
+Retorne SOMENTE um JSON array com os campos suspeitos:
+[{"campo": "caminho.do.campo", "confianca": "media|baixa", "motivo": "explicação (max 80 chars)"}]
+
+Regras de verificação:
+- Sinalize campos com valor ≠ 0 que parecem incorretos (valor trocado, sinal errado, escala errada)
+- Sinalize campos com valor 0 quando o documento claramente indica valor diferente
+- Não sinalize campos de totais (total_ativo_circulante, passivo_total, etc.)
+
+Regras de classificação (sinalize se violadas):
+- ativo_circulante.adiantamentos DEVE ser 0 (valores somados a outros_ativos_circulantes)
+- patrimonio_liquido.reservas_de_lucro DEVE ser 0 (valores somados a lucros_ou_prejuizos_acumulados)
+- passivo_circulante.outros_passivos_financeiros DEVE ser 0 (valores somados a outros_passivos_circulante)
+- Direito de uso/arrendamento deve estar em imobilizado, não em intangivel_diferido
+- Aplicações Financeiras e Consórcios do ANC devem estar em investimentos
+- Provisões de contingências devem estar em provisoes (LP), não outros_passivos_nao_circulantes
+- DRE deve usar valores ACUMULADOS, não trimestrais
+- despesas_administrativas deve ser o valor residual, não o total agregado de despesas operacionais
+
+- Se a extração parecer correta, retorne []
+- Máximo 15 itens
+- Retorne APENAS o JSON array, sem texto adicional.\
+"""
+
+# Template do system prompt — preenchido em runtime com artifacts separados
+SYSTEM_PROMPT = """\
+Você é um especialista em análise de demonstrações financeiras brasileiras.
+Sua tarefa é extrair informações estruturadas de documentos financeiros (Balanço Patrimonial e DRE).
+
+{depara}
+
+{regras}
+
+## INSTRUÇÕES DE EXTRAÇÃO
+
+{instructions}
+{fewshot}
+Retorne SOMENTE um JSON array válido seguindo exatamente o schema fornecido. Sem texto adicional.\
+"""
+
+# ---------------------------------------------------------------------------
+# Helpers para processar o schema
+# ---------------------------------------------------------------------------
+_SECTION_LABELS = {
+    "ativo_circulante":        "Ativo Circulante",
+    "ativo_nao_circulante":    "Ativo Não Circulante",
+    "ativo_permanente":        "Ativo Permanente",
+    "passivo_circulante":      "Passivo Circulante",
+    "passivo_nao_circulante":  "Passivo Não Circulante",
+    "patrimonio_liquido":      "Patrimônio Líquido",
+    "dre":                     "DRE — Demonstração do Resultado",
+}
+
+
+def build_depara_section(depara: dict) -> str:
+    """Gera a seção '## DICIONÁRIO DE CONTAS' a partir do depara.json."""
+    # Agrupa por seção de primeiro nível
+    sections: dict[str, list] = {}
+    for path, entry in depara.items():
+        top = path.split(".")[0]
+        sections.setdefault(top, []).append((path, entry["conceito"], entry["aliases"]))
+
+    lines = [
+        "## DICIONÁRIO DE CONTAS (DE-PARA)",
+        "",
+        "Se o nome de uma linha do documento corresponder (exato ou similar) a um dos aliases abaixo,",
+        "mapeie para o campo indicado. Quando houver ambiguidade, use o contexto da seção do balanço.",
+        "",
+    ]
+    for section_key, field_entries in sections.items():
+        label = _SECTION_LABELS.get(section_key, section_key)
+        lines.append(f"### {label}")
+        lines.append("")
+        for path, conceito, aliases in field_entries:
+            aliases_str = ", ".join(aliases) if isinstance(aliases, list) else aliases
+            lines.append(f"**{path}** — {conceito}")
+            lines.append(f"→ {aliases_str}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_regras_section(regras: list) -> str:
+    """Gera a seção '## REGRAS DE CLASSIFICAÇÃO CONTÁBIL' a partir do regras_classificacao.json."""
+    if not regras:
+        return ""
+    lines = [
+        "## REGRAS DE CLASSIFICAÇÃO CONTÁBIL",
+        "",
+        "As regras abaixo são OBRIGATÓRIAS e têm prioridade sobre qualquer interpretação individual.",
+        "",
+    ]
+    for r in regras:
+        lines.append(f"### {r['id']}. {r['titulo']}")
+        lines.append(r["regra"])
+        lines.append("")
+    return "\n".join(lines)
+
+
+def clean_schema(schema: dict) -> dict:
+    """Retorna cópia limpa do schema (só estrutura, sem metadados extras)."""
+    return copy.deepcopy(schema)
+
+
+# ---------------------------------------------------------------------------
+# Modelo MLflow
+# ---------------------------------------------------------------------------
+class TechFinExtractorAgent(PythonModel):
+
+    def load_context(self, context):
+        from openai import OpenAI
+
+        # Auth: token injetado via environment_vars do endpoint (ou Databricks SDK local)
+        try:
+            from databricks.sdk import WorkspaceClient
+            w = WorkspaceClient()
+            token = w.config.token
+            host  = w.config.host
+        except Exception:
+            token = os.environ.get("DATABRICKS_TOKEN", "token")
+            host  = os.environ.get("DATABRICKS_HOST", "https://e2-demo-field-eng.cloud.databricks.com")
+
+        if not host.startswith("http"):
+            host = f"https://{host}"
+
+        self.client = OpenAI(
+            api_key=token,
+            base_url=f"{host.rstrip('/')}/serving-endpoints",
+        )
+
+        with open(context.artifacts["output_schema"]) as f:
+            raw_schema = json.load(f)
+
+        # Schema limpo (só estrutura) → vai no user message
+        self.output_schema = clean_schema(raw_schema)
+
+        # DE-PARA de arquivo separado (ou fallback do schema antigo)
+        depara_path = context.artifacts.get("depara")
+        if depara_path and os.path.exists(depara_path):
+            with open(depara_path) as f:
+                depara_data = json.load(f)
+            self.depara_section = build_depara_section(depara_data)
+        else:
+            self.depara_section = ""
+
+        # Regras de classificação contábil de arquivo separado
+        regras_path = context.artifacts.get("regras_classificacao")
+        if regras_path and os.path.exists(regras_path):
+            with open(regras_path) as f:
+                regras_data = json.load(f)
+            self.regras_section = build_regras_section(regras_data)
+        else:
+            self.regras_section = ""
+
+        # Few-shot examples de correções anteriores (artifact opcional)
+        fewshot_path = context.artifacts.get("few_shot_examples")
+        if fewshot_path and os.path.exists(fewshot_path):
+            with open(fewshot_path) as f:
+                self.fewshot_examples = json.load(f)
+        else:
+            self.fewshot_examples = []
+
+    def _build_fewshot_section(self) -> str:
+        """Gera seção de exemplos de correções anteriores para o prompt."""
+        if not self.fewshot_examples:
+            return ""
+        lines = [
+            "\n## EXEMPLOS DE CORREÇÕES ANTERIORES",
+            "",
+            "Os exemplos abaixo representam erros recorrentes encontrados em extrações anteriores.",
+            "Use-os como referência para evitar repetir os mesmos erros.",
+            "",
+        ]
+        for i, ex in enumerate(self.fewshot_examples, 1):
+            freq = ex.get("frequencia", 1)
+            lines.append(f"### {i}. `{ex['campo']}` ({freq}x corrigido)")
+            if ex.get("fonte_doc"):
+                lines.append(f"- Texto no documento: \"{ex['fonte_doc']}\"")
+            lines.append(f"- Extração errada: {ex['valor_errado']}")
+            lines.append(f"- Valor correto: {ex['valor_correto']}")
+            lines.append(f"- Motivo: {ex['explicacao']}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _system_prompt(self) -> str:
+        return SYSTEM_PROMPT.format(
+            depara=self.depara_section,
+            regras=self.regras_section,
+            instructions=INSTRUCTIONS,
+            fewshot=self._build_fewshot_section(),
+        )
+
+    def _user_prompt(self, text: str) -> str:
+        schema_str = json.dumps(self.output_schema, ensure_ascii=False, indent=2)
+        return (
+            f"Extraia as informações financeiras do seguinte documento e retorne um JSON "
+            f"seguindo exatamente este schema:\n\n{schema_str}\n\n"
+            f"DOCUMENTO:\n{text}"
+        )
+
+    def _judge(self, text: str, result: dict) -> tuple[list, dict]:
+        """Avalia qualidade da extração. Retorna (lista de campos suspeitos, usage dict)."""
+        result_for_judge = copy.deepcopy(result)
+        result_for_judge.pop("fontes", None)  # Remove fontes para reduzir tokens
+        result_str = json.dumps(result_for_judge, ensure_ascii=False, indent=2)
+        doc_preview = text[:5000] if len(text) > 5000 else text
+        user_msg = (
+            f"DOCUMENTO (trecho):\n{doc_preview}\n\n"
+            f"JSON EXTRAÍDO:\n{result_str}"
+        )
+        try:
+            response = self.client.chat.completions.create(
+                model=os.environ.get("JUDGE_MODEL", os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6")),
+                messages=[
+                    {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_msg},
+                ],
+                temperature=0,
+                max_tokens=800,
+            )
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+            }
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            assessment = json.loads(raw)
+            return (assessment if isinstance(assessment, list) else []), usage
+        except Exception:
+            return [], {}
+
+    @staticmethod
+    def _recover_truncated_json(raw: str):
+        """Try to recover complete JSON records from a truncated response.
+        If the model output was cut off mid-JSON, find the last complete
+        top-level object in the array and return what we can parse."""
+        if not raw or raw[0] != "[":
+            return None
+        # Strategy: find each complete top-level {} in the array
+        # by scanning for }, then try json.loads on the array up to that point
+        last_good = None
+        depth = 0
+        in_str = False
+        escape_next = False
+        for i, ch in enumerate(raw):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\":
+                if in_str:
+                    escape_next = True
+                continue
+            if ch == '"' and not escape_next:
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    # Complete top-level object found
+                    last_good = i
+        if last_good is None:
+            return None
+        # Try to parse array up to last complete object + closing bracket
+        candidate = raw[:last_good + 1].rstrip().rstrip(",") + "\n]"
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, list) else [parsed]
+        except json.JSONDecodeError:
+            return None
+
+    def predict(self, context, model_input):
+        import pandas as pd
+
+        if isinstance(model_input, pd.DataFrame):
+            texts = model_input.iloc[:, 0].tolist()
+        elif isinstance(model_input, dict):
+            val = model_input.get("text", model_input.get("inputs", ""))
+            texts = [val] if isinstance(val, str) else val
+        elif isinstance(model_input, list):
+            texts = [m.get("content", "") if isinstance(m, dict) else str(m) for m in model_input]
+        else:
+            texts = [str(model_input)]
+
+        results = []
+        for text in texts:
+            response = self.client.chat.completions.create(
+                model=os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6"),
+                messages=[
+                    {"role": "system", "content": self._system_prompt()},
+                    {"role": "user",   "content": self._user_prompt(text)},
+                ],
+                temperature=0,
+                max_tokens=32000,
+            )
+            extract_usage = {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+            }
+            raw = response.choices[0].message.content.strip()
+            finish_reason = getattr(response.choices[0], "finish_reason", None)
+
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.split("```")[0].strip()
+            elif not (raw.startswith("[") or raw.startswith("{")):
+                for start in ["[{", "[ {", "[\n{", "[\r\n{", "[  {"]:
+                    idx = raw.find(start)
+                    if idx >= 0:
+                        raw = raw[idx:]
+                        break
+                else:
+                    idx = raw.find("[")
+                    if idx >= 0:
+                        raw = raw[idx:]
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                # Output may have been truncated — try to recover complete records
+                parsed = self._recover_truncated_json(raw)
+
+            if parsed is not None:
+                if isinstance(parsed, dict):
+                    parsed = [parsed]
+                judge_prompt_tokens = 0
+                judge_completion_tokens = 0
+                for r in parsed:
+                    if not r.get("error"):
+                        assessment, judge_usage = self._judge(text, r)
+                        r["_assessment"] = assessment
+                        judge_prompt_tokens += judge_usage.get("prompt_tokens", 0)
+                        judge_completion_tokens += judge_usage.get("completion_tokens", 0)
+                total_prompt = extract_usage["prompt_tokens"] + judge_prompt_tokens
+                total_completion = extract_usage["completion_tokens"] + judge_completion_tokens
+                usage_summary = {
+                    "extract_prompt_tokens": extract_usage["prompt_tokens"],
+                    "extract_completion_tokens": extract_usage["completion_tokens"],
+                    "judge_prompt_tokens": judge_prompt_tokens,
+                    "judge_completion_tokens": judge_completion_tokens,
+                    "total_prompt_tokens": total_prompt,
+                    "total_completion_tokens": total_completion,
+                    "total_tokens": total_prompt + total_completion,
+                }
+                for r in parsed:
+                    if not r.get("error"):
+                        r["_usage"] = usage_summary
+                results.append(parsed)
+            else:
+                results.append([{"error": "parse_failed",
+                                 "raw": raw[:2000],
+                                 "finish_reason": str(finish_reason),
+                                 "completion_tokens": extract_usage["completion_tokens"]}])
+
+        return results if len(results) > 1 else results[0]
+
+
+# Necessário para code-based logging
+mlflow.models.set_model(TechFinExtractorAgent())
