@@ -191,14 +191,18 @@ def process_one(pdf_name: str, text: str) -> dict:
                 f"tokens={err_info.get('completion_tokens',0)}): "
                 f"{err_info.get('raw', '')[:300]}"
             )
+        if errored and valid:
+            with print_lock:
+                print(f"  ⚠ {pdf_name}: {len(errored)} registro(s) com parse truncado descartados, {len(valid)} válidos recuperados")
         result = valid
 
         save_result(pdf_name, result)
         doc_stat["records"] = len(result)
-        doc_stat["status"]  = "ok"
+        doc_stat["status"]  = "ok" if not errored else "partial"
         combos = [(get_nested(r, "tipo_entidade"), get_nested(r, "identificacao.periodo")) for r in result]
         with print_lock:
-            print(f"  ✓ {pdf_name}: {len(result)} registro(s) {combos} em {doc_stat['time_llm_s']}s (${doc_stat['cost_llm_usd']:.4f})")
+            icon = "✓" if not errored else "⚠"
+            print(f"  {icon} {pdf_name}: {len(result)} registro(s) {combos} em {doc_stat['time_llm_s']}s (${doc_stat['cost_llm_usd']:.4f})")
 
     except Exception as e:
         doc_stat["error_msg"] = str(e)
@@ -225,9 +229,9 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         pdf_name = futures[future]
         doc_stat = future.result()
         stats.append(doc_stat)
-        if doc_stat["status"] == "ok":
+        if doc_stat["status"] in ("ok", "partial"):
             successes.append(pdf_name)
-        elif doc_stat["error_msg"]:
+        if doc_stat["error_msg"]:
             errors.append((pdf_name, doc_stat["error_msg"]))
 
 total_elapsed = time.time() - total_start
@@ -255,7 +259,7 @@ print()
 print(f"  {'PDF':<50} {'Tempo':>7} {'Custo':>8}  Status")
 print(f"  {'-'*50} {'-'*7} {'-'*8}  ------")
 for s in stats:
-    status_str = "✓" if s["status"] == "ok" else f"✗ {s['error_msg'][:25]}"
+    status_str = "✓" if s["status"] == "ok" else "⚠ parcial" if s["status"] == "partial" else f"✗ {s['error_msg'][:25]}"
     print(f"  {s['pdf'][:50]:<50} {s['time_total_s']:>6.1f}s ${s['cost_llm_usd']:>7.4f}  {status_str}")
 
 if errors:
