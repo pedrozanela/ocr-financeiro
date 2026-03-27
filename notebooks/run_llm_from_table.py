@@ -50,7 +50,7 @@ for r in rows:
 
 # COMMAND ----------
 
-RETRYABLE_CODES = {504, 555, 503, 429}
+RETRYABLE_CODES = {400, 429, 503, 504, 555}
 
 def call_endpoint(text: str, max_retries: int = 5) -> tuple[dict, int, int]:
     for attempt in range(max_retries):
@@ -59,8 +59,12 @@ def call_endpoint(text: str, max_retries: int = 5) -> tuple[dict, int, int]:
                                  json={"dataframe_records": [{"text": text}]},
                                  timeout=600)
             if resp.status_code in RETRYABLE_CODES:
-                wait = 60 * (attempt + 1)
-                print(f"    HTTP {resp.status_code} — retry {attempt+1}/{max_retries} em {wait}s")
+                body = ""
+                try: body = resp.text[:200]
+                except: pass
+                wait = 30 * (attempt + 1)
+                with print_lock:
+                    print(f"    HTTP {resp.status_code} — retry {attempt+1}/{max_retries} em {wait}s ({body})")
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -148,7 +152,7 @@ def save_result(pdf_name: str, results):
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-MAX_WORKERS = 5
+MAX_WORKERS = 3
 print_lock = threading.Lock()
 
 def process_one(pdf_name: str, text: str) -> dict:

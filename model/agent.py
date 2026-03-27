@@ -345,7 +345,7 @@ class TechFinExtractorAgent(PythonModel):
                     {"role": "user",   "content": self._user_prompt(text)},
                 ],
                 temperature=0,
-                max_tokens=32000,
+                max_tokens=64000,
             )
             extract_usage = {
                 "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
