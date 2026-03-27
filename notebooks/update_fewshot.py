@@ -275,7 +275,7 @@ config = {
         "name": "techfin-ocr-v4",
         "entity_name": UC_MODEL_NAME,
         "entity_version": str(latest_version),
-        "workload_size": "Small",
+        "workload_size": "Large",
         "scale_to_zero_enabled": False,
         "environment_vars": {
             "DATABRICKS_TOKEN": f"{{{{secrets/{dbutils.widgets.get('secret_scope')}/{dbutils.widgets.get('secret_key')}}}}}"

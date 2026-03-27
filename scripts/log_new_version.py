@@ -76,7 +76,7 @@ config = {
             "name": OCR_ENDPOINT,
             "entity_name": UC_MODEL_NAME,
             "entity_version": str(latest_version),
-            "workload_size": "Small",
+            "workload_size": "Large",
             "scale_to_zero_enabled": False,
             "environment_vars": {
                 "DATABRICKS_TOKEN": f"{{{{secrets/{SECRET_SCOPE}/{SECRET_KEY}}}}}"
