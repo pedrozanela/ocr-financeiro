@@ -195,6 +195,156 @@ const VALIDATIONS: Validation[] = [
     },
   },
   {
+    label: 'Consistência interna do Ativo Não Circulante',
+    description:
+      'A soma dos itens do Ativo Não Circulante deve ser aproximadamente igual ao seu total.',
+    check: (data) => {
+      const total = n(data, 'ativo_nao_circulante.total_ativo_nao_circulante')
+      if (total === 0) return { status: 'info', details: 'Ativo Não Circulante zerado' }
+      const sum =
+        n(data, 'ativo_nao_circulante.titulos_a_receber') +
+        n(data, 'ativo_nao_circulante.estoques') +
+        n(data, 'ativo_nao_circulante.adiantamentos') +
+        n(data, 'ativo_nao_circulante.impostos_a_recuperar') +
+        n(data, 'ativo_nao_circulante.despesas_pagas_antecipadamente') +
+        n(data, 'ativo_nao_circulante.conta_corrente_socios_control_colig') +
+        n(data, 'ativo_nao_circulante.outros_realizavel_a_longo_prazo')
+      const pct = diffPct(total, sum)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `Soma itens: ${fmtN(sum)} | Total ANC: ${fmtN(total)} | Dif: ${fmtN(Math.abs(total - sum))} (${pct.toFixed(2)}%)`,
+        }
+      return { status: 'ok', details: `Total ANC: ${fmtN(total)} ✓` }
+    },
+  },
+  {
+    label: 'Consistência interna do Ativo Permanente',
+    description:
+      'A soma de Investimentos, Imobilizado e Intangível/Diferido deve ser igual ao Total do Ativo Permanente.',
+    check: (data) => {
+      const total = n(data, 'ativo_permanente.total_ativo_permanente')
+      if (total === 0) return { status: 'info', details: 'Ativo Permanente zerado' }
+      const sum =
+        n(data, 'ativo_permanente.investimentos') +
+        n(data, 'ativo_permanente.imobilizado') +
+        n(data, 'ativo_permanente.intangivel_diferido')
+      const pct = diffPct(total, sum)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `Soma itens: ${fmtN(sum)} | Total AP: ${fmtN(total)} | Dif: ${fmtN(Math.abs(total - sum))} (${pct.toFixed(2)}%)`,
+        }
+      return { status: 'ok', details: `Total AP: ${fmtN(total)} ✓` }
+    },
+  },
+  {
+    label: 'Consistência interna do Passivo Não Circulante',
+    description:
+      'A soma dos itens do Passivo Não Circulante deve ser aproximadamente igual ao seu total.',
+    check: (data) => {
+      const total = n(data, 'passivo_nao_circulante.total_passivo_nao_circulante')
+      if (total === 0) return { status: 'info', details: 'Passivo Não Circulante zerado' }
+      const sum =
+        n(data, 'passivo_nao_circulante.fornecedores') +
+        n(data, 'passivo_nao_circulante.financiamentos_com_instituicoes_de_credito') +
+        n(data, 'passivo_nao_circulante.salarios_contribuicoes') +
+        n(data, 'passivo_nao_circulante.tributos') +
+        n(data, 'passivo_nao_circulante.adiantamentos') +
+        n(data, 'passivo_nao_circulante.conta_corrente_socios_coligadas_controladas') +
+        n(data, 'passivo_nao_circulante.outros_passivos_nao_circulantes') +
+        n(data, 'passivo_nao_circulante.provisoes')
+      const pct = diffPct(total, sum)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `Soma itens: ${fmtN(sum)} | Total PNC: ${fmtN(total)} | Dif: ${fmtN(Math.abs(total - sum))} (${pct.toFixed(2)}%)`,
+        }
+      return { status: 'ok', details: `Total PNC: ${fmtN(total)} ✓` }
+    },
+  },
+  {
+    label: 'DRE: Receita Operacional Bruta = Venda Produtos + Serviços',
+    description:
+      'A Receita Operacional Bruta deve ser igual à soma da Receita de Venda de Produtos/Mercadoria com a Receita de Serviços/Arrendamento.',
+    check: (data) => {
+      const rob = n(data, 'dre.receita_operacional_bruta')
+      if (rob === 0) return { status: 'info', details: 'ROB zerada' }
+      const prod = n(data, 'dre.receita_venda_produto_mercadoria')
+      const serv = n(data, 'dre.receita_servicos_arrendamento')
+      if (prod === 0 && serv === 0) return { status: 'info', details: 'Sub-itens de receita zerados (ROB não detalhada)' }
+      const sum = prod + serv
+      const pct = diffPct(rob, sum)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `Produtos: ${fmtN(prod)} + Serviços: ${fmtN(serv)} = ${fmtN(sum)} | ROB: ${fmtN(rob)} | Dif: ${pct.toFixed(2)}%`,
+        }
+      return { status: 'ok', details: `Produtos: ${fmtN(prod)} + Serviços: ${fmtN(serv)} = ROB: ${fmtN(rob)} ✓` }
+    },
+  },
+  {
+    label: 'DRE: Deduções = Vendas Anuladas + Abatimentos + Impostos sobre Vendas',
+    description:
+      'O Total de Deduções deve ser a soma de Vendas Anuladas, Abatimentos e Impostos Incidentes sobre Vendas.',
+    check: (data) => {
+      const ded = n(data, 'dre.total_deducoes')
+      if (ded === 0) return { status: 'info', details: 'Deduções zeradas' }
+      const va = n(data, 'dre.vendas_anuladas')
+      const ab = n(data, 'dre.abatimentos')
+      const imp = n(data, 'dre.impostos_incidentes_sobre_vendas')
+      const sum = va + ab + imp
+      const pct = diffPct(ded, sum)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `Soma: ${fmtN(sum)} | Total Deduções: ${fmtN(ded)} | Dif: ${pct.toFixed(2)}%`,
+        }
+      return { status: 'ok', details: `Deduções: ${fmtN(ded)} ✓` }
+    },
+  },
+  {
+    label: 'DRE: ROL = ROB − Deduções + Incentivos',
+    description:
+      'A Receita Operacional Líquida deve ser igual à Receita Bruta menos as Deduções mais os Incentivos a Exportações.',
+    check: (data) => {
+      const rol = n(data, 'dre.receita_operacional_liquida')
+      if (rol === 0) return { status: 'info', details: 'ROL zerada' }
+      const rob = n(data, 'dre.receita_operacional_bruta')
+      const ded = n(data, 'dre.total_deducoes')
+      const inc = n(data, 'dre.incentivos_a_exportacoes')
+      const calc = rob - ded + inc
+      const pct = diffPct(calc, rol)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `ROB: ${fmtN(rob)} − Ded: ${fmtN(ded)} + Inc: ${fmtN(inc)} = ${fmtN(calc)} | ROL: ${fmtN(rol)} | Dif: ${pct.toFixed(2)}%`,
+        }
+      return { status: 'ok', details: `ROL: ${fmtN(rol)} ✓` }
+    },
+  },
+  {
+    label: 'DRE: Despesas Financeiras = Encargos + Descontos + Variação Cambial',
+    description:
+      'O Total de Despesas Financeiras deve ser a soma de Encargos Financeiros, Descontos Concedidos e Variação Cambial não paga.',
+    check: (data) => {
+      const total = n(data, 'dre.despesas_financeiras')
+      if (total === 0) return { status: 'info', details: 'Despesas Financeiras zeradas' }
+      const enc = n(data, 'dre.encargos_financeiros')
+      const desc = n(data, 'dre.descontos_concedidos')
+      const vc = n(data, 'dre.variacao_cambial_nao_paga')
+      if (enc === 0 && desc === 0 && vc === 0) return { status: 'info', details: 'Sub-itens zerados (não detalhado)' }
+      const sum = enc + desc + vc
+      const pct = diffPct(total, sum)
+      if (pct > TOL)
+        return {
+          status: 'warning',
+          details: `Soma: ${fmtN(sum)} | Desp Fin: ${fmtN(total)} | Dif: ${pct.toFixed(2)}%`,
+        }
+      return { status: 'ok', details: `Despesas Financeiras: ${fmtN(total)} ✓` }
+    },
+  },
+  {
     label: 'DRE: Lucro Bruto = ROL − CMV',
     description:
       'A Receita Operacional Líquida menos o Custo dos Serviços/Produtos/Mercadorias Vendidos deve ser igual ao Lucro Bruto.',

@@ -10,13 +10,23 @@ import json
 import time
 import requests
 
-# Configuração — edite via variáveis de ambiente ou widgets do notebook
-SOURCE_TABLE    = spark.conf.get("techfin.source_table", "pedro_zanela.ia.new_ocr_techfin")
-RESULTS_TABLE   = spark.conf.get("techfin.results_table", "pedro_zanela.ia.new_ocr_techfin_results")
-OCR_ENDPOINT    = spark.conf.get("techfin.ocr_endpoint", "techfin-ocr-v4")
-DATABRICKS_HOST = spark.conf.get("techfin.host", "https://e2-demo-field-eng.cloud.databricks.com")
-SECRET_SCOPE    = spark.conf.get("techfin.secret_scope", "pedro-zanela-scope")
-SECRET_KEY      = spark.conf.get("techfin.secret_key", "techfin-ocr-pat")
+# Configuração via widgets (compatível com Serverless)
+dbutils.widgets.text("catalog", "pedro_zanela")
+dbutils.widgets.text("schema", "ocr_financeiro")
+dbutils.widgets.text("endpoint", "extrator-financeiro")
+dbutils.widgets.text("secret_scope", "ocr-financeiro")
+dbutils.widgets.text("secret_key", "pat-servico")
+
+_cat = dbutils.widgets.get("catalog")
+_sch = dbutils.widgets.get("schema")
+SOURCE_TABLE    = f"{_cat}.{_sch}.documentos"
+RESULTS_TABLE   = f"{_cat}.{_sch}.resultados"
+OCR_ENDPOINT    = dbutils.widgets.get("endpoint")
+DATABRICKS_HOST = spark.conf.get("spark.databricks.workspaceUrl", "e2-demo-field-eng.cloud.databricks.com")
+if not DATABRICKS_HOST.startswith("http"):
+    DATABRICKS_HOST = f"https://{DATABRICKS_HOST}"
+SECRET_SCOPE    = dbutils.widgets.get("secret_scope")
+SECRET_KEY      = dbutils.widgets.get("secret_key")
 ENDPOINT_URL    = f"{DATABRICKS_HOST}/serving-endpoints/{OCR_ENDPOINT}/invocations"
 
 PRICE_INPUT_PER_TOKEN  = 3.00 / 1_000_000
