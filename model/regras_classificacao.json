@@ -48,5 +48,10 @@
     "id": 10,
     "titulo": "Receitas/Despesas não-operacionais → campos próprios na DRE",
     "regra": "Receitas não operacionais devem ir em `dre.receita_nao_operacional`. Despesas não operacionais devem ir em `dre.despesa_nao_operacional`. Resultado Extraordinário Operacional deve ir no campo mais adequado entre receita ou despesa não operacional."
+  },
+  {
+    "id": 11,
+    "titulo": "NUNCA ajustar valores para forçar consistência",
+    "regra": "Extraia SEMPRE o valor exato que aparece no documento, mesmo que a soma dos sub-itens não bata com o total do grupo. NUNCA ajuste, arredonde ou redistribua valores para forçar a soma a fechar. Se a soma dos sub-itens divergir do total extraído, reporte ambos como estão no documento. A divergência será tratada pela validação posterior, não pelo modelo."
   }
 ]

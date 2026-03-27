@@ -47,7 +47,7 @@ export default function App() {
       const docName = body.document_name
 
       // Poll for OCR completion (runs in background on server)
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 180; i++) {
         await new Promise(r => setTimeout(r, 5000))
         const st = await fetch(`/api/documents/${encodeURIComponent(docName)}/status`).then(r => r.json())
         if (st.status === 'done') {
@@ -61,7 +61,7 @@ export default function App() {
         }
         // still processing — keep polling
       }
-      throw new Error('Timeout: processamento OCR demorou mais de 5 minutos')
+      throw new Error('Timeout: processamento OCR demorou mais de 15 minutos')
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
     } finally {

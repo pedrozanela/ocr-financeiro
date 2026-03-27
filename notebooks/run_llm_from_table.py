@@ -50,15 +50,17 @@ for r in rows:
 
 # COMMAND ----------
 
+RETRYABLE_CODES = {504, 555, 503, 429}
+
 def call_endpoint(text: str, max_retries: int = 5) -> tuple[dict, int, int]:
     for attempt in range(max_retries):
         try:
             resp = requests.post(ENDPOINT_URL, headers=HEADERS,
                                  json={"dataframe_records": [{"text": text}]},
-                                 timeout=480)
-            if resp.status_code == 504:
-                wait = 90 * (attempt + 1)
-                print(f"    504 — aguardando {wait}s antes de retry {attempt+1}/{max_retries}")
+                                 timeout=600)
+            if resp.status_code in RETRYABLE_CODES:
+                wait = 60 * (attempt + 1)
+                print(f"    HTTP {resp.status_code} — retry {attempt+1}/{max_retries} em {wait}s")
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -77,8 +79,8 @@ def call_endpoint(text: str, max_retries: int = 5) -> tuple[dict, int, int]:
                 r = json.loads(r)
             return r, input_tokens, output_tokens
         except requests.exceptions.Timeout:
-            wait = 90 * (attempt + 1)
-            print(f"    Timeout — aguardando {wait}s antes de retry {attempt+1}/{max_retries}")
+            wait = 60 * (attempt + 1)
+            print(f"    Timeout — retry {attempt+1}/{max_retries} em {wait}s")
             time.sleep(wait)
     raise Exception(f"Endpoint falhou após {max_retries} tentativas")
 
@@ -139,35 +141,32 @@ def save_result(pdf_name: str, results):
         """)
 
 # COMMAND ----------
-# MAGIC %md ## 3. Processar todos os documentos
+# MAGIC %md ## 3. Processar todos os documentos (paralelo, até 5 simultâneos)
 
 # COMMAND ----------
 
-total_start = time.time()
-stats   = []
-errors  = []
-successes = []
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
-for row in rows:
-    pdf_name = row["document_name"]
-    text     = row["document_text"] or ""
-    doc_start = time.time()
-    print(f"\n→ {pdf_name}")
+MAX_WORKERS = 5
+print_lock = threading.Lock()
 
+def process_one(pdf_name: str, text: str) -> dict:
+    """Processa um documento. Thread-safe."""
     doc_stat = {
         "pdf": pdf_name, "status": "error",
         "time_llm_s": 0.0, "time_total_s": 0.0,
         "input_tokens": 0, "output_tokens": 0,
         "cost_llm_usd": 0.0, "records": 0, "error_msg": "",
     }
+    doc_start = time.time()
 
     try:
         if not text.strip():
-            print("  ⚠ Texto vazio")
             doc_stat["error_msg"] = "no_text"
-            errors.append((pdf_name, "no_text"))
-            stats.append(doc_stat)
-            continue
+            with print_lock:
+                print(f"  ⚠ {pdf_name}: texto vazio")
+            return doc_stat
 
         t0 = time.time()
         result, input_tokens, output_tokens = call_endpoint(text)
@@ -176,11 +175,9 @@ for row in rows:
         doc_stat["output_tokens"] = output_tokens
         cost_llm = (input_tokens * PRICE_INPUT_PER_TOKEN) + (output_tokens * PRICE_OUTPUT_PER_TOKEN)
         doc_stat["cost_llm_usd"]  = round(cost_llm, 4)
-        print(f"  LLM: {input_tokens:,} in + {output_tokens:,} out tokens em {doc_stat['time_llm_s']}s  (${doc_stat['cost_llm_usd']:.4f})")
 
         if isinstance(result, dict):
             result = [result]
-        # Filter out parse_failed records, keep valid ones
         valid   = [r for r in result if not (isinstance(r, dict) and r.get("error"))]
         errored = [r for r in result if isinstance(r, dict) and r.get("error")]
         if errored and not valid:
@@ -190,24 +187,44 @@ for row in rows:
                 f"tokens={err_info.get('completion_tokens',0)}): "
                 f"{err_info.get('raw', '')[:300]}"
             )
-        if errored:
-            print(f"  ⚠ {len(errored)} registro(s) com erro de parse descartados")
         result = valid
 
         save_result(pdf_name, result)
         doc_stat["records"] = len(result)
         doc_stat["status"]  = "ok"
         combos = [(get_nested(r, "tipo_entidade"), get_nested(r, "identificacao.periodo")) for r in result]
-        print(f"  ✓ Salvo | {len(result)} registro(s): {combos}")
-        successes.append(pdf_name)
+        with print_lock:
+            print(f"  ✓ {pdf_name}: {len(result)} registro(s) {combos} em {doc_stat['time_llm_s']}s (${doc_stat['cost_llm_usd']:.4f})")
 
     except Exception as e:
         doc_stat["error_msg"] = str(e)
-        errors.append((pdf_name, str(e)))
-        print(f"  ✗ Erro: {e}")
+        with print_lock:
+            print(f"  ✗ {pdf_name}: {e}")
 
     doc_stat["time_total_s"] = round(time.time() - doc_start, 2)
-    stats.append(doc_stat)
+    return doc_stat
+
+# Execução paralela
+total_start = time.time()
+stats   = []
+errors  = []
+successes = []
+
+print(f"Processando {len(rows)} documentos com {MAX_WORKERS} workers paralelos...\n")
+
+with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+    futures = {
+        pool.submit(process_one, row["document_name"], row["document_text"] or ""): row["document_name"]
+        for row in rows
+    }
+    for future in as_completed(futures):
+        pdf_name = futures[future]
+        doc_stat = future.result()
+        stats.append(doc_stat)
+        if doc_stat["status"] == "ok":
+            successes.append(pdf_name)
+        elif doc_stat["error_msg"]:
+            errors.append((pdf_name, doc_stat["error_msg"]))
 
 total_elapsed = time.time() - total_start
 

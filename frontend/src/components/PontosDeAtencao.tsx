@@ -39,7 +39,7 @@ function diffPct(a: number, b: number): number {
   return (Math.abs(a - b) / base) * 100
 }
 
-const TOL = 1.0 // 1% tolerance
+const TOL = 0.01 // 0.01% tolerance (praticamente exato, aceita apenas arredondamento)
 
 const VALIDATIONS: Validation[] = [
   {
