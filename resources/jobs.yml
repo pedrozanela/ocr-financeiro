@@ -34,6 +34,32 @@ resources:
       max_concurrent_runs: 1
       timeout_seconds: 3600
 
+    setup_infrastructure_job:
+      name: "[${bundle.target}] OCR Financeiro - Setup Infraestrutura"
+      description: >
+        Cria schema, tabelas e volume no Unity Catalog.
+        Executar uma vez no primeiro deploy de cada ambiente.
+
+      tags:
+        project: ${var.tag_project}
+
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ../notebooks/setup_infrastructure.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: Default
+
+      environments:
+        - environment_key: Default
+          spec:
+            client: "1"
+
+      max_concurrent_runs: 1
+
     grant_permissions_job:
       name: "[${bundle.target}] OCR Financeiro - Grant App Permissions"
       description: >
