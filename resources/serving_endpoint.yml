@@ -1,0 +1,12 @@
+resources:
+  model_serving_endpoints:
+    extrator_financeiro:
+      name: "extrator-financeiro"
+      config:
+        served_entities:
+          - entity_name: "${var.catalog}.${var.schema}.extrator_financeiro"
+            entity_version: "1"
+            workload_size: "Small"
+            scale_to_zero_enabled: false
+            environment_vars:
+              DATABRICKS_TOKEN: "{{secrets/${var.secret_scope}/${var.secret_key}}}"

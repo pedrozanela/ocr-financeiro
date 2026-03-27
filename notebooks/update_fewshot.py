@@ -16,11 +16,20 @@ import json
 import os
 from collections import defaultdict
 
-CORRECTIONS_TABLE = "pedro_zanela.ocr_financeiro.correcoes"
-RESULTS_TABLE = "pedro_zanela.ocr_financeiro.resultados"
-UC_MODEL_NAME = "pedro_zanela.ocr_financeiro.extrator_financeiro"
-ENDPOINT_NAME = "extrator-financeiro"
-WORKSPACE_PATH = "/Workspace/Users/pedro.zanela@databricks.com/techfin"
+# Parametros (injetados via DABs job ou widgets manuais)
+dbutils.widgets.text("catalog", "pedro_zanela")
+dbutils.widgets.text("schema", "ocr_financeiro")
+dbutils.widgets.text("secret_scope", "ocr-financeiro")
+dbutils.widgets.text("secret_key", "pat-servico")
+
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
+
+CORRECTIONS_TABLE = f"{catalog}.{schema}.correcoes"
+RESULTS_TABLE = f"{catalog}.{schema}.resultados"
+UC_MODEL_NAME = f"{catalog}.{schema}.extrator_financeiro"
+ENDPOINT_NAME = f"extrator-financeiro"
+WORKSPACE_PATH = f"/Workspace/Users/{spark.conf.get('spark.databricks.notebook.path', '').rsplit('/', 2)[0]}" or "/Workspace/Users/pedro.zanela@databricks.com/techfin"
 MAX_EXAMPLES = 20
 
 # COMMAND ----------
@@ -180,8 +189,6 @@ for ex in examples:
 # COMMAND ----------
 
 # Salva no Volume (compatível com Serverless — sem acesso ao filesystem local)
-catalog = "pedro_zanela"
-schema = "ocr_financeiro"
 VOLUME_PATH = f"/Volumes/{catalog}/{schema}/documentos_pdf"
 fewshot_json = json.dumps(examples, ensure_ascii=False, indent=2)
 
@@ -267,7 +274,7 @@ config = {
         "workload_size": "Small",
         "scale_to_zero_enabled": False,
         "environment_vars": {
-            "DATABRICKS_TOKEN": "{{secrets/ocr-financeiro/pat-servico}}"
+            "DATABRICKS_TOKEN": f"{{{{secrets/{dbutils.widgets.get('secret_scope')}/{dbutils.widgets.get('secret_key')}}}}}"
         }
     }]
 }

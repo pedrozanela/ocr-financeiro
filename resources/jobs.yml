@@ -1,0 +1,63 @@
+resources:
+  jobs:
+    update_model_job:
+      name: "[${bundle.target}] OCR Financeiro - Atualizar Modelo"
+      description: >
+        Le correcoes humanas, gera few-shot examples, registra nova versao
+        do modelo MLflow e atualiza o serving endpoint.
+
+      tags:
+        project: ${var.tag_project}
+
+      tasks:
+        - task_key: update_fewshot
+          notebook_task:
+            notebook_path: ../notebooks/update_fewshot.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+          environment_key: Default
+
+      environments:
+        - environment_key: Default
+          spec:
+            client: "1"
+
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * MON"
+        timezone_id: "America/Sao_Paulo"
+        pause_status: UNPAUSED
+
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+
+    grant_permissions_job:
+      name: "[${bundle.target}] OCR Financeiro - Grant App Permissions"
+      description: >
+        Concede permissoes UC ao Service Principal da app.
+        Executar uma vez apos o primeiro deploy.
+        Passar o sp_client_id via: databricks bundle run grant_permissions_job --params sp_client_id=<ID>
+
+      tags:
+        project: ${var.tag_project}
+
+      tasks:
+        - task_key: grant
+          notebook_task:
+            notebook_path: ../notebooks/grant_permissions.py
+            source: WORKSPACE
+            base_parameters:
+              sp_client_id: ""
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: Default
+
+      environments:
+        - environment_key: Default
+          spec:
+            client: "1"
+
+      max_concurrent_runs: 1
