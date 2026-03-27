@@ -29,7 +29,11 @@ CORRECTIONS_TABLE = f"{catalog}.{schema}.correcoes"
 RESULTS_TABLE = f"{catalog}.{schema}.resultados"
 UC_MODEL_NAME = f"{catalog}.{schema}.extrator_financeiro"
 ENDPOINT_NAME = f"extrator-financeiro"
-WORKSPACE_PATH = f"/Workspace/Users/{spark.conf.get('spark.databricks.notebook.path', '').rsplit('/', 2)[0]}" or "/Workspace/Users/pedro.zanela@databricks.com/techfin"
+try:
+    _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().getOrElse(None)
+    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else "/Workspace/Users/pedro.zanela@databricks.com/techfin"
+except Exception:
+    WORKSPACE_PATH = "/Workspace/Users/pedro.zanela@databricks.com/techfin"
 MAX_EXAMPLES = 20
 
 # COMMAND ----------
