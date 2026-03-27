@@ -378,27 +378,16 @@ class TechFinExtractorAgent(PythonModel):
             if parsed is not None:
                 if isinstance(parsed, dict):
                     parsed = [parsed]
-                judge_prompt_tokens = 0
-                judge_completion_tokens = 0
-                for r in parsed:
-                    if not r.get("error"):
-                        assessment, judge_usage = self._judge(text, r)
-                        r["_assessment"] = assessment
-                        judge_prompt_tokens += judge_usage.get("prompt_tokens", 0)
-                        judge_completion_tokens += judge_usage.get("completion_tokens", 0)
-                total_prompt = extract_usage["prompt_tokens"] + judge_prompt_tokens
-                total_completion = extract_usage["completion_tokens"] + judge_completion_tokens
                 usage_summary = {
                     "extract_prompt_tokens": extract_usage["prompt_tokens"],
                     "extract_completion_tokens": extract_usage["completion_tokens"],
-                    "judge_prompt_tokens": judge_prompt_tokens,
-                    "judge_completion_tokens": judge_completion_tokens,
-                    "total_prompt_tokens": total_prompt,
-                    "total_completion_tokens": total_completion,
-                    "total_tokens": total_prompt + total_completion,
+                    "total_prompt_tokens": extract_usage["prompt_tokens"],
+                    "total_completion_tokens": extract_usage["completion_tokens"],
+                    "total_tokens": extract_usage["prompt_tokens"] + extract_usage["completion_tokens"],
                 }
                 for r in parsed:
                     if not r.get("error"):
+                        r["_assessment"] = []
                         r["_usage"] = usage_summary
                 results.append(parsed)
             else:

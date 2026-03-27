@@ -16,11 +16,11 @@ import json
 import os
 from collections import defaultdict
 
-CORRECTIONS_TABLE = "pedro_zanela.ia.new_ocr_techfin_corrections"
-RESULTS_TABLE = "pedro_zanela.ia.new_ocr_techfin_results"
-UC_MODEL_NAME = "pedro_zanela.ia.techfin_ocr_v4"
-ENDPOINT_NAME = "techfin-ocr-v4"
-WORKSPACE_PATH = "/Workspace/Users/pedro.zanela@databricks.com/techfin-ocr-agent"
+CORRECTIONS_TABLE = "pedro_zanela.ocr_financeiro.correcoes"
+RESULTS_TABLE = "pedro_zanela.ocr_financeiro.resultados"
+UC_MODEL_NAME = "pedro_zanela.ocr_financeiro.extrator_financeiro"
+ENDPOINT_NAME = "extrator-financeiro"
+WORKSPACE_PATH = "/Workspace/Users/pedro.zanela@databricks.com/techfin"
 MAX_EXAMPLES = 20
 
 # COMMAND ----------
@@ -179,24 +179,15 @@ for ex in examples:
 
 # COMMAND ----------
 
-# Salva no workspace
-fewshot_path = f"{WORKSPACE_PATH}/few_shot_examples.json"
+# Salva no Volume (compatível com Serverless — sem acesso ao filesystem local)
+catalog = "pedro_zanela"
+schema = "ocr_financeiro"
+VOLUME_PATH = f"/Volumes/{catalog}/{schema}/documentos_pdf"
 fewshot_json = json.dumps(examples, ensure_ascii=False, indent=2)
 
-import tempfile, shutil
-with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-    tmp.write(fewshot_json)
-    tmp_path = tmp.name
-
-dbutils.fs.cp(f"file:{tmp_path}", f"file:{fewshot_path.replace('/Workspace', '/Workspace')}")
-os.unlink(tmp_path)
-
-# Also write to local /tmp for MLflow logging
-local_fewshot = "/tmp/few_shot_examples.json"
-with open(local_fewshot, "w") as f:
-    f.write(fewshot_json)
-
-print(f"Few-shot examples salvos")
+fewshot_volume_path = f"{VOLUME_PATH}/few_shot_examples.json"
+dbutils.fs.put(fewshot_volume_path, fewshot_json, overwrite=True)
+print(f"Few-shot examples salvos em {fewshot_volume_path}")
 
 # COMMAND ----------
 
@@ -212,17 +203,28 @@ from mlflow.types.schema import Schema, ColSpec
 mlflow.set_registry_uri("databricks-uc")
 
 EXPERIMENT_ID = "1305773837091373"
-AGENT_FILE = f"{WORKSPACE_PATH}/agent.py"
-SCHEMA_FILE = f"{WORKSPACE_PATH}/output_schema.json"
+
+# Artifacts ficam no workspace path (acessível via /Workspace)
+AGENT_FILE  = f"{WORKSPACE_PATH}/model/agent.py"
+SCHEMA_FILE = f"{WORKSPACE_PATH}/model/output_schema.json"
+DEPARA_FILE = f"{WORKSPACE_PATH}/model/depara.json"
+REGRAS_FILE = f"{WORKSPACE_PATH}/model/regras_classificacao.json"
+
+# Few-shot vem do Volume (salvo no step anterior)
+FEWSHOT_FILE = fewshot_volume_path if examples else None
 
 signature = ModelSignature(
     inputs=Schema([ColSpec(type="string", name="text")]),
     outputs=Schema([ColSpec(type="string", name="output")]),
 )
 
-artifacts = {"output_schema": SCHEMA_FILE}
-if os.path.exists(local_fewshot):
-    artifacts["few_shot_examples"] = local_fewshot
+artifacts = {
+    "output_schema": SCHEMA_FILE,
+    "depara": DEPARA_FILE,
+    "regras_classificacao": REGRAS_FILE,
+}
+if FEWSHOT_FILE:
+    artifacts["few_shot_examples"] = FEWSHOT_FILE
 
 print(f"Logando modelo com {len(artifacts)} artifacts...")
 with mlflow.start_run(experiment_id=EXPERIMENT_ID, run_name="auto-fewshot-update") as run:
@@ -265,7 +267,7 @@ config = {
         "workload_size": "Small",
         "scale_to_zero_enabled": False,
         "environment_vars": {
-            "DATABRICKS_TOKEN": "{{secrets/pedro-zanela-scope/techfin-ocr-pat}}"
+            "DATABRICKS_TOKEN": "{{secrets/ocr-financeiro/pat-servico}}"
         }
     }]
 }

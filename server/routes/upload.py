@@ -48,13 +48,20 @@ def _call_ocr_endpoint(text: str, client) -> list:
     url = f"{host.rstrip('/')}/serving-endpoints/{OCR_ENDPOINT}/invocations"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    resp = _requests.post(
-        url,
-        headers=headers,
-        json={"dataframe_records": [{"text": text}]},
-        timeout=300,
-    )
-    resp.raise_for_status()
+    for attempt in range(3):
+        try:
+            resp = _requests.post(
+                url,
+                headers=headers,
+                json={"dataframe_records": [{"text": text}]},
+                timeout=480,
+            )
+            resp.raise_for_status()
+            break
+        except (_requests.exceptions.Timeout, _requests.exceptions.ConnectionError) as e:
+            if attempt == 2:
+                raise RuntimeError(f"Endpoint não respondeu após 3 tentativas: {e}")
+            import time; time.sleep(10)
     r = resp.json().get("predictions", resp.json())
     if isinstance(r, list) and len(r) == 1:
         r = r[0]
