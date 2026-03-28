@@ -53,5 +53,15 @@
     "id": 11,
     "titulo": "NUNCA ajustar valores para forçar consistência",
     "regra": "Extraia SEMPRE o valor exato que aparece no documento, mesmo que a soma dos sub-itens não bata com o total do grupo. NUNCA ajuste, arredonde ou redistribua valores para forçar a soma a fechar. Se a soma dos sub-itens divergir do total extraído, reporte ambos como estão no documento. A divergência será tratada pela validação posterior, não pelo modelo."
+  },
+  {
+    "id": 12,
+    "titulo": "DRE — cascata dos totais deve ser consistente",
+    "regra": "Os campos totais da DRE devem seguir a cascata correta: (1) `receita_operacional_liquida` = `receita_operacional_bruta` - `total_deducoes` + `incentivos_a_exportacoes`. (2) `lucro_bruto` = `receita_operacional_liquida` - `total_custo`. (3) `lucro_operacional` = `lucro_bruto` - `total_despesas_operacionais`. (4) `lucro_financeiro` = `lucro_operacional` - `despesas_financeiras` + `total_receitas_financeiras`. (5) `lucro_antes_imposto_de_renda` = `lucro_financeiro` + `resultado_de_equivalencia_patrimonial` + `receita_nao_operacional` - `despesa_nao_operacional` + `saldo_correcao_monetaria` + `resultado_alienacao_ativos`. (6) `lucro_liquido` = `lucro_antes_imposto_de_renda` - `provisao_imposto_de_renda` - `csll` - `participacoes_gratificacoes_estatutarias` - `participacao_minoritarios`. Se o documento traz o valor direto de um total, extraia esse valor. Mas se o total não aparece explicitamente no documento, calcule-o seguindo a cascata acima."
+  },
+  {
+    "id": 13,
+    "titulo": "Total de Despesas Operacionais — incluir todas as linhas",
+    "regra": "O campo `dre.total_despesas_operacionais` deve incluir a soma de TODAS as despesas operacionais: `despesas_com_vendas` + `provisao_para_devedores_duvidosos` + `outras_receitas_despesas_operacionais` + `despesas_administrativas` + `despesas_tributarias` + `despesas_gerais` + `depreciacao` + `amortizacao`. Se o documento apresenta um total de despesas operacionais explícito, use esse valor. Se não, some os sub-itens."
   }
 ]
