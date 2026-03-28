@@ -39,6 +39,31 @@ def get_metrics():
         ORDER BY total DESC
     """)
 
+    # Corrections by user (who created + who confirmed)
+    by_user = execute_sql(f"""
+        SELECT
+            COALESCE(criado_por, 'unknown') AS usuario,
+            COUNT(*) AS total_correcoes,
+            SUM(CASE WHEN status = 'confirmado' THEN 1 ELSE 0 END) AS confirmadas,
+            CAST(MAX(criado_em) AS STRING) AS ultima_correcao
+        FROM {CORRECTIONS_TABLE}
+        GROUP BY 1
+        ORDER BY total_correcoes DESC
+    """)
+
+    # Recent corrections with user detail
+    recent = execute_sql(f"""
+        SELECT document_name, campo, valor_extraido, valor_correto, comentario,
+               COALESCE(criado_por, 'unknown') AS criado_por,
+               CAST(criado_em AS STRING) AS criado_em,
+               COALESCE(confirmado_por, '') AS confirmado_por,
+               CAST(confirmado_em AS STRING) AS confirmado_em,
+               COALESCE(status, 'pendente') AS status
+        FROM {CORRECTIONS_TABLE}
+        ORDER BY criado_em DESC
+        LIMIT 20
+    """)
+
     # All documents with their corrections count and accuracy
     by_doc = execute_sql(f"""
         WITH doc_records AS (
@@ -92,6 +117,8 @@ def get_metrics():
         "by_field": by_field,
         "by_type": by_type,
         "by_doc": by_doc,
+        "by_user": by_user,
+        "recent": recent,
     }
 
 

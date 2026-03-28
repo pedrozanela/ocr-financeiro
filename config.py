@@ -23,6 +23,7 @@ UC_SCHEMA = os.environ.get("UC_SCHEMA", "ocr_financeiro")
 SOURCE_TABLE = os.environ.get("SOURCE_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.documentos")
 RESULTS_TABLE = os.environ.get("RESULTS_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.resultados")
 CORRECTIONS_TABLE = os.environ.get("CORRECTIONS_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.correcoes")
+RESULTS_FINAL_TABLE = os.environ.get("RESULTS_FINAL_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.resultados_final")
 
 # Modelo registrado
 UC_MODEL_NAME = os.environ.get("UC_MODEL_NAME", f"{UC_CATALOG}.{UC_SCHEMA}.extrator_financeiro")

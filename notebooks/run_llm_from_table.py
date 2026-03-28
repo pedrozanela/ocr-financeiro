@@ -152,7 +152,7 @@ def save_result(pdf_name: str, results):
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-MAX_WORKERS = 3
+MAX_WORKERS = 2
 print_lock = threading.Lock()
 
 def process_one(pdf_name: str, text: str) -> dict:
