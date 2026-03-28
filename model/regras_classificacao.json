@@ -63,5 +63,10 @@
     "id": 13,
     "titulo": "Total de Despesas Operacionais — incluir todas as linhas",
     "regra": "O campo `dre.total_despesas_operacionais` deve incluir a soma de TODAS as despesas operacionais: `despesas_com_vendas` + `provisao_para_devedores_duvidosos` + `outras_receitas_despesas_operacionais` + `despesas_administrativas` + `despesas_tributarias` + `despesas_gerais` + `depreciacao` + `amortizacao`. Se o documento apresenta um total de despesas operacionais explícito, use esse valor. Se não, some os sub-itens."
+  },
+  {
+    "id": 14,
+    "titulo": "Ativo Não Circulante vs Ativo Permanente — NÃO duplicar",
+    "regra": "O Ativo Não Circulante (ANC) e o Ativo Permanente (AP) são grupos DISTINTOS. O ANC contém: títulos a receber LP, estoques LP, adiantamentos LP, impostos a recuperar LP, despesas pagas antecipadamente, C/C sócios LP e outros realizável LP. O AP contém: investimentos, imobilizado e intangível/diferido. NUNCA duplique valores entre ANC e AP. Se o documento apresenta 'Ativo Não Circulante' como um bloco único contendo tanto realizável LP quanto investimentos/imobilizado/intangível, classifique: (a) investimentos, imobilizado e intangível em `ativo_permanente`; (b) demais itens de longo prazo em `ativo_nao_circulante`; (c) `total_ativo_nao_circulante` = soma apenas dos itens de (b), NÃO inclua investimentos/imobilizado/intangível; (d) `total_ativo_permanente` = soma de investimentos + imobilizado + intangível. A regra fundamental: `ativo_total` = `total_ativo_circulante` + `total_ativo_nao_circulante` + `total_ativo_permanente`. Se ao somar os três totais o resultado for maior que o ativo total extraído, há duplicação — corrija."
   }
 ]
