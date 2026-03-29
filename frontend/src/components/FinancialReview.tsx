@@ -34,6 +34,8 @@ interface DocRecord {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: any
   assessment?: AssessmentItem[]
+  processado_em?: string | null
+  modelo_versao?: string | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -327,9 +329,9 @@ export default function FinancialReview({ documentName }: Props) {
                 {data?.identificacao?.tipo_demonstrativo && (
                   <span className="text-xs text-gray-500">{data.identificacao.tipo_demonstrativo}</span>
                 )}
-                {data?.identificacao?.escala_valores && (
+                {current.processado_em && (
                   <span className="text-xs text-gray-500">
-                    <span className="text-gray-400 font-medium mr-1">Escala</span>{data.identificacao.escala_valores}
+                    <span className="text-gray-400 font-medium mr-1">Processado</span>{new Date(current.processado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </span>
                 )}
               </div>
