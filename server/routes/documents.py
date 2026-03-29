@@ -28,7 +28,8 @@ def list_documents():
 @router.get("/documents/{document_name}")
 def get_document(document_name: str):
     rows = execute_sql(
-        f"""SELECT document_name, tipo_entidade, periodo, extracted_json, assessment_json
+        f"""SELECT document_name, tipo_entidade, periodo, extracted_json, assessment_json,
+                CAST(processado_em AS STRING) AS processado_em, COALESCE(modelo_versao, '') AS modelo_versao
             FROM {RESULTS_TABLE}
             WHERE document_name = :name
             ORDER BY tipo_entidade, periodo DESC""",
@@ -49,6 +50,8 @@ def get_document(document_name: str):
             "periodo": row.get("periodo"),
             "data": data,
             "assessment": assessment,
+            "processado_em": row.get("processado_em"),
+            "modelo_versao": row.get("modelo_versao"),
         })
 
     return {

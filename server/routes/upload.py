@@ -123,11 +123,14 @@ def _save_result(document_name: str, results: list, client):
                 cnpj               = :cnpj,
                 tipo_demonstrativo = :td,
                 moeda              = :moe,
-                escala_valores     = :esc
+                escala_valores     = :esc,
+                processado_em      = CURRENT_TIMESTAMP()
             WHEN NOT MATCHED THEN INSERT
                 (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
-                 token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores)
-            VALUES (:doc, :te, :per, :json, :assessment, :usage, :rs, :cnpj, :td, :moe, :esc)
+                 token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                 processado_em)
+            VALUES (:doc, :te, :per, :json, :assessment, :usage, :rs, :cnpj, :td, :moe, :esc,
+                    CURRENT_TIMESTAMP())
         """, params)
 
 

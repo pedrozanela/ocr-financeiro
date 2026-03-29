@@ -135,13 +135,17 @@ def save_result(pdf_name: str, results):
                 cnpj               = '{cnpj}',
                 tipo_demonstrativo = '{td}',
                 moeda              = '{moe}',
-                escala_valores     = '{escv}'
+                escala_valores     = '{escv}',
+                processado_em      = CURRENT_TIMESTAMP(),
+                modelo_versao      = '{ENDPOINT_NAME}'
             WHEN NOT MATCHED THEN INSERT
                 (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
-                 token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores)
+                 token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                 processado_em, modelo_versao)
             VALUES
                 ('{doc}', '{te}', '{per}', '{ej}', '{aj}',
-                 '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}')
+                 '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
+                 CURRENT_TIMESTAMP(), '{ENDPOINT_NAME}')
         """)
 
 # COMMAND ----------

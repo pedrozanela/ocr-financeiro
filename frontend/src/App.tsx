@@ -22,6 +22,7 @@ export default function App() {
   const [modelUpdating, setModelUpdating] = useState(false)
   const [modelUpdateMsg, setModelUpdateMsg] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [currentUser, setCurrentUser] = useState<string | null>(null)
 
   function loadDocs() {
     return fetch('/api/documents')
@@ -30,7 +31,10 @@ export default function App() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { loadDocs() }, [])
+  useEffect(() => {
+    loadDocs()
+    fetch('/api/me').then(r => r.json()).then(d => setCurrentUser(d.email)).catch(() => {})
+  }, [])
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -207,6 +211,17 @@ export default function App() {
             </svg>
             {modelUpdating ? 'Atualizando modelo…' : 'Atualizar Modelo'}
           </button>
+
+          {currentUser && (
+            <div className="flex items-center gap-2 pt-1">
+              <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center shrink-0">
+                <svg className="w-3.5 h-3.5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <p className="text-[10px] text-white/40 truncate">{currentUser}</p>
+            </div>
+          )}
         </div>
       </aside>
 

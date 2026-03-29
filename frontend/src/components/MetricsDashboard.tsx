@@ -10,6 +10,8 @@ interface GlobalMetrics {
   by_field: { campo: string; pendente: string; confirmado: string; total: string }[]
   by_type: { tipo: string; total: string }[]
   by_doc: { document_name: string; pendente: string; confirmado: string; total: string; razao_social: string | null; accuracy_pct: string | null; total_records: string }[]
+  by_user: { usuario: string; total_correcoes: string; confirmadas: string; ultima_correcao: string | null }[]
+  recent: { document_name: string; campo: string; valor_extraido: string; valor_correto: string; comentario: string; criado_por: string; criado_em: string | null; confirmado_por: string; confirmado_em: string | null; status: string }[]
 }
 
 interface DocumentMetrics {
@@ -208,6 +210,69 @@ export default function MetricsDashboard() {
               )}
             </div>
           </div>
+
+          {/* By user */}
+          {globalData.by_user?.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-100 p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">Atividade por revisor</h3>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-400 border-b border-gray-100">
+                    <th className="text-left pb-2 font-medium">Usuário</th>
+                    <th className="text-right pb-2 font-medium">Correções</th>
+                    <th className="text-right pb-2 font-medium">Confirmadas</th>
+                    <th className="text-right pb-2 font-medium">Última atividade</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {globalData.by_user.map(r => (
+                    <tr key={r.usuario}>
+                      <td className="py-2 text-gray-700 font-medium">{r.usuario}</td>
+                      <td className="py-2 text-right font-mono text-gray-700">{r.total_correcoes}</td>
+                      <td className="py-2 text-right font-mono text-green-700">{r.confirmadas}</td>
+                      <td className="py-2 text-right text-gray-400">
+                        {r.ultima_correcao ? r.ultima_correcao.substring(0, 16).replace('T', ' ') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Recent corrections */}
+          {globalData.recent?.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-100 p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">Correções recentes</h3>
+              <div className="space-y-2">
+                {globalData.recent.map((r, i) => (
+                  <div key={i} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                    <div className={`mt-0.5 w-1.5 h-1.5 rounded-full shrink-0 ${r.status === 'confirmado' ? 'bg-green-400' : 'bg-amber-400'}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-gray-700 truncate">{r.campo}</span>
+                        <span className="text-[10px] text-gray-400 truncate max-w-[180px]">{r.document_name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs font-mono text-gray-400 line-through">{r.valor_extraido || '—'}</span>
+                        <svg className="w-3 h-3 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                        <span className="text-xs font-mono font-semibold text-gray-700">{r.valor_correto || '—'}</span>
+                        {r.comentario && <span className="text-[10px] text-gray-400 italic truncate">{r.comentario}</span>}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] text-gray-500 font-medium">{r.criado_por}</p>
+                      <p className="text-[10px] text-gray-300">
+                        {r.criado_em ? r.criado_em.substring(0, 16).replace('T', ' ') : ''}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {globalData.by_doc.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-100 p-5">

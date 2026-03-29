@@ -19,7 +19,7 @@ class Correction(BaseModel):
 
 def _current_user(request: Request) -> str:
     """Get authenticated user from Databricks Apps proxy headers."""
-    for header in ("X-Forwarded-User", "X-Forwarded-Email", "X-Databricks-User"):
+    for header in ("X-Forwarded-Email", "X-Forwarded-User", "X-Databricks-User"):
         v = request.headers.get(header, "")
         if v:
             return v
@@ -125,6 +125,11 @@ def _update_resultados_final(document_name: str, tipo_entidade: str, periodo: st
             {"name": "user",   "value": user},
         ],
     )
+
+
+@router.get("/me")
+def get_me(request: Request):
+    return {"email": _current_user(request)}
 
 
 @router.get("/corrections/{document_name}")

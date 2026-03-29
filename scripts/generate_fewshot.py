@@ -96,7 +96,8 @@ def main():
     use_all = "--all" in sys.argv
 
     # 1. Busca correções com contexto
-    status_filter = "" if use_all else "AND c.status = 'confirmado'"
+    # Sempre exclui correções resolvidas (modelo já aprendeu)
+    status_filter = "AND COALESCE(c.status, 'pendente') != 'resolvido'" if use_all else "AND c.status = 'confirmado'"
     sql = f"""
     SELECT
         c.campo,
