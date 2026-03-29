@@ -226,11 +226,14 @@ interface RowProps {
 }
 
 const ERROR_TAGS = [
+  'Valor incorreto (OCR)',
   'Dígito errado',
   'Escala incorreta (mil/milhão)',
   'Campo trocado',
   'Sinal invertido (+/-)',
   'Valor ausente no PDF',
+  'Faltou somar subconta',
+  'IR/CSLL diferido não incluído',
 ]
 
 function FieldRow({ label, path, extracted, extractedFormatted, correctionFormatted, correction, assessmentItem, isTotal, saving, saved, onSave, onDelete, onConfirm }: RowProps) {
