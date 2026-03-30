@@ -242,11 +242,11 @@ if doc_count == 0:
 import pandas as pd
 from pyspark.sql.functions import pandas_udf
 
-# Auth obtida no driver via SDK; passada via closure para os workers
-from databricks.sdk import WorkspaceClient as _WC
-_w     = _WC()
-_TOKEN = _w.config.token
-_HOST  = _w.config.host if _w.config.host.startswith("http") else f"https://{_w.config.host}"
+# Auth: secrets (único método confiável em Serverless)
+_TOKEN = dbutils.secrets.get("ocr-financeiro", "pat-servico")
+_HOST  = spark.conf.get("spark.databricks.workspaceUrl", "e2-demo-field-eng.cloud.databricks.com")
+if not _HOST.startswith("http"):
+    _HOST = f"https://{_HOST}"
 _URL   = f"{_HOST.rstrip('/')}/serving-endpoints/{MODEL}/chat/completions"
 
 # Captura prompts via closure (picklados com o UDF, sem broadcast)
