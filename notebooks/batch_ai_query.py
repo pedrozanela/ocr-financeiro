@@ -461,8 +461,17 @@ if errors:
         print(f"  ✗ {name}: {err[:120]}")
 
 hard_errors = [(n, e) for n, e in errors if "vazia" not in e and "no_text" not in e]
+
+# Expõe detalhes de erro via notebook.exit (visível no API get-output)
+summary = {
+    "success": len(successes),
+    "errors":  len(errors),
+    "hard_errors": len(hard_errors),
+    "elapsed_s": round(elapsed, 1),
+    "first_errors": [(n, e[:300]) for n, e in hard_errors[:5]],
+}
+
 if hard_errors and len(hard_errors) > doc_count // 2:
-    raise Exception(
-        f"Mais da metade falhou ({len(hard_errors)}/{doc_count}): "
-        f"{[n for n, _ in hard_errors]}"
-    )
+    dbutils.notebook.exit(json.dumps(summary, ensure_ascii=False))
+else:
+    dbutils.notebook.exit(json.dumps(summary, ensure_ascii=False))
