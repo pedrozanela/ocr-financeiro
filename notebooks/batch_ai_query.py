@@ -260,11 +260,9 @@ batch_df = (
                   named_struct('role', 'system', 'content', _sys),
                   named_struct('role', 'user',   'content', _user)
                 ),
-                'max_tokens',  64000,
-                'temperature', cast(0 as double)
-              ),
-              'STRING',
-              false
+                'max_tokens', 64000,
+                'temperature', 0.0
+              )
             )
         """),
     )
@@ -276,6 +274,12 @@ results = batch_df.collect()  # dispara ai_query em paralelo por Spark
 elapsed = time.time() - t0
 
 print(f"✓ {len(results)} chamadas em {int(elapsed // 60)}m {int(elapsed % 60)}s")
+
+# Debug: inspecionar o tipo e preview do primeiro resultado
+if results:
+    r0 = results[0]["raw_response"]
+    print(f"DEBUG tipo raw_response : {type(r0)}")
+    print(f"DEBUG preview           : {str(r0)[:400]}")
 
 # COMMAND ----------
 # MAGIC %md ## 4. Parse e persistência
@@ -373,10 +377,19 @@ successes, errors = [], []
 
 for row in results:
     pdf_name = row["document_name"]
-    raw      = row["raw_response"] or ""
+    raw_val  = row["raw_response"]
+
+    # ai_query pode retornar VARIANT (dict) ou STRING dependendo da versão do DBR.
+    # Se for dict, extrair o content do chat completion response.
+    if isinstance(raw_val, dict):
+        raw = (raw_val.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+    elif raw_val is None:
+        raw = ""
+    else:
+        raw = str(raw_val)
 
     if not raw:
-        errors.append((pdf_name, "ai_query retornou NULL (failOnError=false)"))
+        errors.append((pdf_name, "ai_query retornou NULL"))
         print(f"  ✗ {pdf_name}: ai_query NULL")
         continue
 
