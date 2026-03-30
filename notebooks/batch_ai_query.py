@@ -247,7 +247,7 @@ _TOKEN = dbutils.secrets.get("ocr-financeiro", "pat-servico")
 _HOST  = spark.conf.get("spark.databricks.workspaceUrl", "e2-demo-field-eng.cloud.databricks.com")
 if not _HOST.startswith("http"):
     _HOST = f"https://{_HOST}"
-_URL   = f"{_HOST.rstrip('/')}/serving-endpoints/{MODEL}/chat/completions"
+_URL   = f"{_HOST.rstrip('/')}/serving-endpoints/{MODEL}/invocations"
 
 # Captura prompts via closure (picklados com o UDF, sem broadcast)
 _SYS    = SYSTEM_PROMPT_FULL
