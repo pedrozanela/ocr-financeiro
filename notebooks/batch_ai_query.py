@@ -158,6 +158,14 @@ if doc_count == 0:
 
 # COMMAND ----------
 
+# Reparticiona para garantir paralelismo: por padrão tabelas pequenas ficam
+# em 1-2 partições e o ai_query seria sequencial. Uma partição por doc garante
+# que cada chamada rode em paralelo (limitado pelos cores/workers do cluster).
+MAX_PARTITIONS = 8
+n_partitions = min(doc_count, MAX_PARTITIONS)
+docs_df = docs_df.repartition(n_partitions)
+print(f"Partições: {n_partitions} (paralelo efetivo)")
+
 # system_prompt e user_prefix são adicionados como colunas lit() —
 # Spark gerencia o escape automaticamente, sem risco de injeção SQL.
 batch_df = (
