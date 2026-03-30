@@ -3,7 +3,8 @@ import json
 import os
 import requests as _requests
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File
-from ..config import get_client, PDF_VOLUME_PATH, RESULTS_TABLE, OCR_ENDPOINT, DATABRICKS_HOST, SERVERLESS_WAREHOUSE_ID
+from ..config import get_client, PDF_VOLUME_PATH, RESULTS_TABLE, SOURCE_TABLE, OCR_ENDPOINT, DATABRICKS_HOST, SERVERLESS_WAREHOUSE_ID
+from ..db import execute_update
 
 router = APIRouter()
 
@@ -142,6 +143,21 @@ def _process_background(document_name: str, volume_path: str):
         if not text.strip():
             _status[document_name] = {"status": "error", "detail": "Não foi possível extrair texto do PDF."}
             return
+        # Persist raw text in documentos table
+        _status[document_name] = {"status": "processing", "step": "saving_text"}
+        execute_update(
+            f"""MERGE INTO {SOURCE_TABLE} AS t
+                USING (SELECT :name AS document_name) AS s
+                  ON t.document_name = s.document_name
+                WHEN MATCHED THEN UPDATE SET document_text = :text, ingested_at = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN INSERT (document_name, document_text, ingested_at)
+                VALUES (:name, :text, CURRENT_TIMESTAMP())""",
+            [
+                {"name": "name", "value": document_name},
+                {"name": "text", "value": text},
+            ],
+        )
+
         _status[document_name] = {"status": "processing", "step": "ocr"}
         client = get_client()
         results = _call_ocr_endpoint(text, client)
