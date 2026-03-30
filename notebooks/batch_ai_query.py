@@ -279,7 +279,7 @@ def _call_llm(texts: pd.Series) -> pd.Series:
         last_err = None
         for attempt in range(3):
             try:
-                resp = _req.post(_URL, headers=_headers, json=payload, timeout=300)
+                resp = _req.post(_URL, headers=_headers, json=payload, timeout=600)
                 if resp.status_code in (429, 503, 504) and attempt < 2:
                     _time.sleep(30 * (attempt + 1))
                     continue
@@ -322,7 +322,7 @@ print(f"✓ {len(results)} chamadas em {int(elapsed // 60)}m {int(elapsed % 60)}
 # COMMAND ----------
 
 def _clean_raw(raw: str) -> str:
-    """Remove delimitadores markdown se o modelo os incluiu."""
+    """Remove delimitadores markdown e normaliza para array JSON."""
     raw = raw.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -338,6 +338,22 @@ def _clean_raw(raw: str) -> str:
         if idx >= 0:
             raw = raw[idx:]
     return raw
+
+
+def _parse_json_robust(raw: str):
+    """Parse JSON; se 'Extra data', tenta envolver múltiplos objetos em array."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        if "Extra data" not in str(e):
+            raise
+        # Múltiplos objetos JSON concatenados sem array — envolver em []
+        import re
+        objs = re.findall(r'\{(?:[^{}]|\{[^{}]*\})*\}', raw, re.DOTALL)
+        if objs:
+            candidate = "[" + ",".join(objs) + "]"
+            return json.loads(candidate)
+        raise
 
 
 def _get_nested(d: dict, path: str):
@@ -422,7 +438,7 @@ for row in results:
         continue
 
     try:
-        parsed = json.loads(_clean_raw(raw))
+        parsed = _parse_json_robust(_clean_raw(raw))
         if isinstance(parsed, dict):
             parsed = [parsed]
 
