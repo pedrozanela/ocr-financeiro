@@ -277,20 +277,30 @@ def _call_llm(texts: pd.Series) -> pd.Series:
             "temperature": 0,
         }
         last_err = None
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 resp = _req.post(_URL, headers=_headers, json=payload, timeout=600)
-                if resp.status_code in (429, 503, 504) and attempt < 2:
-                    _time.sleep(30 * (attempt + 1))
+                if resp.status_code in (429, 503, 504):
+                    wait = 60 * (attempt + 1)
+                    _time.sleep(wait)
+                    last_err = Exception(f"{resp.status_code} {resp.text[:100]}")
                     continue
                 resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
+                # /invocations pode retornar chat format (choices) ou predictions
+                body = resp.json()
+                if "choices" in body:
+                    content = body["choices"][0]["message"]["content"]
+                elif "predictions" in body:
+                    p = body["predictions"]
+                    content = p if isinstance(p, str) else (p[0] if isinstance(p, list) else str(p))
+                else:
+                    content = str(body)
                 out.append(content)
                 last_err = None
                 break
             except Exception as e:
                 last_err = e
-                if attempt < 2:
+                if attempt < 4:
                     _time.sleep(30 * (attempt + 1))
 
         if last_err is not None:
@@ -299,8 +309,9 @@ def _call_llm(texts: pd.Series) -> pd.Series:
     return pd.Series(out)
 
 
-# Reparticiona para paralelismo real (padrão: tabela pequena → 1 partição → sequencial)
-MAX_PARTITIONS = 8
+# Reparticiona para paralelismo real.
+# MAX_PARTITIONS baixo evita rate limiting (429) no FM API.
+MAX_PARTITIONS = 4
 n_partitions = min(doc_count, MAX_PARTITIONS)
 print(f"Partições : {n_partitions}")
 
