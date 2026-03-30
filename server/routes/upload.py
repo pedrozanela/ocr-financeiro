@@ -149,9 +149,9 @@ def _process_background(document_name: str, volume_path: str):
             f"""MERGE INTO {SOURCE_TABLE} AS t
                 USING (SELECT :name AS document_name) AS s
                   ON t.document_name = s.document_name
-                WHEN MATCHED THEN UPDATE SET document_text = :text, ingested_at = CURRENT_TIMESTAMP()
-                WHEN NOT MATCHED THEN INSERT (document_name, document_text, ingested_at)
-                VALUES (:name, :text, CURRENT_TIMESTAMP())""",
+                WHEN MATCHED THEN UPDATE SET document_text = :text
+                WHEN NOT MATCHED THEN INSERT (document_name, document_text)
+                VALUES (:name, :text)""",
             [
                 {"name": "name", "value": document_name},
                 {"name": "text", "value": text},
