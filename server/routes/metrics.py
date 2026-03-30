@@ -202,6 +202,72 @@ def get_metrics():
     }
 
 
+@router.get("/metrics/validations")
+def get_validations_summary():
+    """Run all validation checks across all documents and return summary."""
+    rows = execute_sql(f"""
+        SELECT document_name, tipo_entidade, periodo, extracted_json, razao_social
+        FROM {RESULTS_TABLE}
+        ORDER BY document_name, tipo_entidade, periodo
+    """)
+
+    by_doc = {}
+    global_ok, global_warn, global_error, global_total = 0, 0, 0, 0
+
+    for row in rows:
+        try:
+            data = json.loads(row["extracted_json"]) if isinstance(row["extracted_json"], str) else row["extracted_json"]
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        v = _run_validations(data)
+        global_ok += v["ok"]
+        global_warn += v["warn"]
+        global_error += v["error"]
+        global_total += v["total"]
+
+        doc_name = row["document_name"]
+        rs = row.get("razao_social") or doc_name
+        if doc_name not in by_doc:
+            by_doc[doc_name] = {"razao_social": rs, "ok": 0, "warn": 0, "error": 0, "total": 0, "records": 0, "issues": []}
+        by_doc[doc_name]["ok"] += v["ok"]
+        by_doc[doc_name]["warn"] += v["warn"]
+        by_doc[doc_name]["error"] += v["error"]
+        by_doc[doc_name]["total"] += v["total"]
+        by_doc[doc_name]["records"] += 1
+        by_doc[doc_name]["issues"].extend(v["issues"])
+
+    docs_list = []
+    for doc_name, d in sorted(by_doc.items(), key=lambda x: x[1]["error"] + x[1]["warn"], reverse=True):
+        pct = round(d["ok"] / d["total"] * 100, 1) if d["total"] > 0 else 100
+        docs_list.append({
+            "document_name": doc_name,
+            "razao_social": d["razao_social"],
+            "records": d["records"],
+            "ok": d["ok"],
+            "warn": d["warn"],
+            "error": d["error"],
+            "total": d["total"],
+            "pct_ok": pct,
+            "issues": list(set(d["issues"])),
+        })
+
+    global_pct = round(global_ok / global_total * 100, 1) if global_total > 0 else 100
+
+    return {
+        "global": {
+            "ok": global_ok,
+            "warn": global_warn,
+            "error": global_error,
+            "total": global_total,
+            "pct_ok": global_pct,
+            "total_docs": len(by_doc),
+            "docs_clean": sum(1 for d in by_doc.values() if d["error"] == 0 and d["warn"] == 0),
+        },
+        "by_doc": docs_list,
+    }
+
+
 @router.get("/metrics/{document_name}")
 def get_document_metrics(document_name: str):
     """Per-document metrics breakdown by tipo_entidade and periodo."""
@@ -312,68 +378,3 @@ def get_document_metrics(document_name: str):
         "by_type": by_type,
     }
 
-
-@router.get("/metrics/validations")
-def get_validations_summary():
-    """Run all validation checks across all documents and return summary."""
-    rows = execute_sql(f"""
-        SELECT document_name, tipo_entidade, periodo, extracted_json, razao_social
-        FROM {RESULTS_TABLE}
-        ORDER BY document_name, tipo_entidade, periodo
-    """)
-
-    by_doc = {}
-    global_ok, global_warn, global_error, global_total = 0, 0, 0, 0
-
-    for row in rows:
-        try:
-            data = json.loads(row["extracted_json"]) if isinstance(row["extracted_json"], str) else row["extracted_json"]
-        except (json.JSONDecodeError, TypeError):
-            continue
-
-        v = _run_validations(data)
-        global_ok += v["ok"]
-        global_warn += v["warn"]
-        global_error += v["error"]
-        global_total += v["total"]
-
-        doc_name = row["document_name"]
-        rs = row.get("razao_social") or doc_name
-        if doc_name not in by_doc:
-            by_doc[doc_name] = {"razao_social": rs, "ok": 0, "warn": 0, "error": 0, "total": 0, "records": 0, "issues": []}
-        by_doc[doc_name]["ok"] += v["ok"]
-        by_doc[doc_name]["warn"] += v["warn"]
-        by_doc[doc_name]["error"] += v["error"]
-        by_doc[doc_name]["total"] += v["total"]
-        by_doc[doc_name]["records"] += 1
-        by_doc[doc_name]["issues"].extend(v["issues"])
-
-    docs_list = []
-    for doc_name, d in sorted(by_doc.items(), key=lambda x: x[1]["error"] + x[1]["warn"], reverse=True):
-        pct = round(d["ok"] / d["total"] * 100, 1) if d["total"] > 0 else 100
-        docs_list.append({
-            "document_name": doc_name,
-            "razao_social": d["razao_social"],
-            "records": d["records"],
-            "ok": d["ok"],
-            "warn": d["warn"],
-            "error": d["error"],
-            "total": d["total"],
-            "pct_ok": pct,
-            "issues": list(set(d["issues"])),
-        })
-
-    global_pct = round(global_ok / global_total * 100, 1) if global_total > 0 else 100
-
-    return {
-        "global": {
-            "ok": global_ok,
-            "warn": global_warn,
-            "error": global_error,
-            "total": global_total,
-            "pct_ok": global_pct,
-            "total_docs": len(by_doc),
-            "docs_clean": sum(1 for d in by_doc.values() if d["error"] == 0 and d["warn"] == 0),
-        },
-        "by_doc": docs_list,
-    }
