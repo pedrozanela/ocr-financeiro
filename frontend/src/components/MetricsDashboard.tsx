@@ -1,5 +1,22 @@
 import { useEffect, useState } from 'react'
 
+interface ValidationDoc {
+  document_name: string
+  razao_social: string
+  records: number
+  ok: number
+  warn: number
+  error: number
+  total: number
+  pct_ok: number
+  issues: string[]
+}
+
+interface ValidationSummary {
+  global: { ok: number; warn: number; error: number; total: number; pct_ok: number; total_docs: number; docs_clean: number }
+  by_doc: ValidationDoc[]
+}
+
 interface GlobalMetrics {
   total_docs: number
   total_corrections: number
@@ -78,17 +95,19 @@ export default function MetricsDashboard() {
   const [globalData, setGlobalData] = useState<GlobalMetrics | null>(null)
   const [docData, setDocData] = useState<DocumentMetrics | null>(null)
   const [selectedDoc, setSelectedDoc] = useState<string>('')
+  const [validations, setValidations] = useState<ValidationSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    fetch('/api/metrics')
-      .then(r => r.json())
-      .then(d => {
-        setGlobalData(d)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+    Promise.all([
+      fetch('/api/metrics').then(r => r.json()),
+      fetch('/api/metrics/validations').then(r => r.json()),
+    ]).then(([m, v]) => {
+      setGlobalData(m)
+      setValidations(v)
+      setLoading(false)
+    }).catch(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -176,6 +195,69 @@ export default function MetricsDashboard() {
             <StatCard label="Pendentes" value={String(globalData.pending_corrections)} color="amber" />
             <StatCard label="Confirmadas" value={String(globalData.confirmed_corrections)} color="green" />
           </div>
+
+          {/* Validation scores */}
+          {validations && (
+            <div className="bg-white rounded-xl border border-gray-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-800">Validações Contábeis</h3>
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> OK: {validations.global.ok}</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Avisos: {validations.global.warn}</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Erros: {validations.global.error}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-8 mb-6">
+                <div className="relative w-28 h-28">
+                  <svg viewBox="0 0 36 36" className="w-28 h-28 -rotate-90">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#10b981" strokeWidth="3"
+                      strokeDasharray={`${validations.global.pct_ok} ${100 - validations.global.pct_ok}`} strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-xl font-bold text-gray-900">{validations.global.pct_ok}%</span>
+                    <span className="text-[10px] text-gray-400">aprovadas</span>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p><strong className="text-gray-700">{validations.global.total_docs}</strong> documentos analisados</p>
+                  <p><strong className="text-emerald-700">{validations.global.docs_clean}</strong> sem nenhum problema</p>
+                  <p><strong className="text-amber-700">{validations.global.total_docs - validations.global.docs_clean}</strong> com avisos ou erros</p>
+                  <p><strong className="text-gray-700">{validations.global.total}</strong> validações executadas</p>
+                </div>
+              </div>
+              <h4 className="text-xs font-semibold text-gray-600 mb-3">Por documento</h4>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {validations.by_doc.map(d => {
+                  const pctOk = d.total > 0 ? (d.ok / d.total) * 100 : 100
+                  const pctWarn = d.total > 0 ? (d.warn / d.total) * 100 : 0
+                  const pctErr = d.total > 0 ? (d.error / d.total) * 100 : 0
+                  return (
+                    <div key={d.document_name} className="group">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs text-gray-600 w-48 truncate shrink-0" title={d.razao_social}>{d.razao_social}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-2.5 flex overflow-hidden">
+                          <div className="bg-emerald-500 h-full" style={{ width: `${pctOk}%` }} />
+                          <div className="bg-amber-500 h-full" style={{ width: `${pctWarn}%` }} />
+                          <div className="bg-red-500 h-full" style={{ width: `${pctErr}%` }} />
+                        </div>
+                        <span className={`text-xs font-bold w-12 text-right ${d.pct_ok >= 95 ? 'text-emerald-700' : d.pct_ok >= 80 ? 'text-amber-700' : 'text-red-700'}`}>
+                          {d.pct_ok}%
+                        </span>
+                      </div>
+                      {d.issues.length > 0 && (
+                        <div className="hidden group-hover:flex flex-wrap gap-1 ml-[200px] mt-0.5 mb-1">
+                          {d.issues.map((issue, i) => (
+                            <span key={i} className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded">{issue}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl border border-gray-100 p-5">
