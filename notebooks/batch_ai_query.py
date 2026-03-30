@@ -232,54 +232,89 @@ if doc_count == 0:
     dbutils.notebook.exit("no_documents")
 
 # COMMAND ----------
-# MAGIC %md ## 3. Executar ai_query em batch (paralelo nativo do Spark)
+# MAGIC %md ## 3. Chamar FM API via pandas UDF (system + user roles, paralelo por Spark)
+# MAGIC
+# MAGIC `ai_query` neste workspace só aceita `StringType` — não suporta messages array.
+# MAGIC Usamos um pandas UDF que chama o endpoint de chat completions diretamente.
 
 # COMMAND ----------
 
-# Reparticiona para garantir paralelismo: por padrão tabelas pequenas ficam
-# em 1-2 partições e o ai_query seria sequencial. Uma partição por doc garante
-# que cada chamada rode em paralelo (limitado pelos cores/workers do cluster).
+import pandas as pd
+from pyspark.sql.functions import pandas_udf
+
+# Auth obtida no driver via SDK; passada via closure para os workers
+from databricks.sdk import WorkspaceClient as _WC
+_w     = _WC()
+_TOKEN = _w.config.token
+_HOST  = _w.config.host if _w.config.host.startswith("http") else f"https://{_w.config.host}"
+_URL   = f"{_HOST.rstrip('/')}/serving-endpoints/{MODEL}/chat/completions"
+
+# Captura prompts via closure (picklados com o UDF, sem broadcast)
+_SYS    = SYSTEM_PROMPT_FULL
+_PREFIX = USER_PROMPT_PREFIX
+
+print(f"Endpoint : {_URL}")
+print(f"Token    : {_TOKEN[:8]}...")
+
+
+@pandas_udf("string")
+def _call_llm(texts: pd.Series) -> pd.Series:
+    """Chama FM API para cada documento. Executa em paralelo nos workers Spark."""
+    import json
+    import time as _time
+    import requests as _req
+
+    _headers = {"Authorization": f"Bearer {_TOKEN}", "Content-Type": "application/json"}
+    out = []
+
+    for text in texts:
+        payload = {
+            "messages": [
+                {"role": "system", "content": _SYS},
+                {"role": "user",   "content": _PREFIX + text},
+            ],
+            "max_tokens": 64000,
+            "temperature": 0,
+        }
+        last_err = None
+        for attempt in range(3):
+            try:
+                resp = _req.post(_URL, headers=_headers, json=payload, timeout=300)
+                if resp.status_code in (429, 503, 504) and attempt < 2:
+                    _time.sleep(30 * (attempt + 1))
+                    continue
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+                out.append(content)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    _time.sleep(30 * (attempt + 1))
+
+        if last_err is not None:
+            out.append(json.dumps({"error": str(last_err)}))
+
+    return pd.Series(out)
+
+
+# Reparticiona para paralelismo real (padrão: tabela pequena → 1 partição → sequencial)
 MAX_PARTITIONS = 8
 n_partitions = min(doc_count, MAX_PARTITIONS)
-docs_df = docs_df.repartition(n_partitions)
-print(f"Partições: {n_partitions} (paralelo efetivo)")
+print(f"Partições : {n_partitions}")
 
-# system_prompt e user_prefix são adicionados como colunas lit() —
-# Spark gerencia o escape automaticamente, sem risco de injeção SQL.
 batch_df = (
-    docs_df
-    .withColumn("_sys",  lit(SYSTEM_PROMPT_FULL))
-    .withColumn("_user", concat(lit(USER_PROMPT_PREFIX), col("document_text")))
-    .withColumn(
-        "raw_response",
-        expr(f"""
-            ai_query(
-              '{MODEL}',
-              named_struct(
-                'messages', array(
-                  named_struct('role', 'system', 'content', _sys),
-                  named_struct('role', 'user',   'content', _user)
-                ),
-                'max_tokens', 64000,
-                'temperature', 0.0
-              )
-            )
-        """),
-    )
+    docs_df.repartition(n_partitions)
+    .withColumn("raw_response", _call_llm(col("document_text")))
     .select("document_name", "raw_response")
 )
 
 t0 = time.time()
-results = batch_df.collect()  # dispara ai_query em paralelo por Spark
+results = batch_df.collect()
 elapsed = time.time() - t0
 
 print(f"✓ {len(results)} chamadas em {int(elapsed // 60)}m {int(elapsed % 60)}s")
-
-# Debug: inspecionar o tipo e preview do primeiro resultado
-if results:
-    r0 = results[0]["raw_response"]
-    print(f"DEBUG tipo raw_response : {type(r0)}")
-    print(f"DEBUG preview           : {str(r0)[:400]}")
 
 # COMMAND ----------
 # MAGIC %md ## 4. Parse e persistência
@@ -379,18 +414,11 @@ for row in results:
     pdf_name = row["document_name"]
     raw_val  = row["raw_response"]
 
-    # ai_query pode retornar VARIANT (dict) ou STRING dependendo da versão do DBR.
-    # Se for dict, extrair o content do chat completion response.
-    if isinstance(raw_val, dict):
-        raw = (raw_val.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
-    elif raw_val is None:
-        raw = ""
-    else:
-        raw = str(raw_val)
+    raw = str(raw_val) if raw_val is not None else ""
 
     if not raw:
-        errors.append((pdf_name, "ai_query retornou NULL"))
-        print(f"  ✗ {pdf_name}: ai_query NULL")
+        errors.append((pdf_name, "resposta vazia do FM API"))
+        print(f"  ✗ {pdf_name}: resposta vazia")
         continue
 
     try:
@@ -432,7 +460,7 @@ if errors:
     for name, err in errors:
         print(f"  ✗ {name}: {err[:120]}")
 
-hard_errors = [(n, e) for n, e in errors if "NULL" not in e and "no_text" not in e]
+hard_errors = [(n, e) for n, e in errors if "vazia" not in e and "no_text" not in e]
 if hard_errors and len(hard_errors) > doc_count // 2:
     raise Exception(
         f"Mais da metade falhou ({len(hard_errors)}/{doc_count}): "
