@@ -48,14 +48,6 @@ print(f"Filter  : {FILTER}")
 # COMMAND ----------
 
 WORKSPACE_BASE = "/Workspace/Repos/pedro.zanela@databricks.com/ocr-financeiro"
-sys.path.insert(0, WORKSPACE_BASE)
-
-from model.agent import (
-    build_depara_section,
-    build_regras_section,
-    INSTRUCTIONS,
-    SYSTEM_PROMPT,
-)
 
 with open(f"{WORKSPACE_BASE}/model/output_schema.json") as f:
     output_schema = json.load(f)
@@ -68,6 +60,92 @@ with open(f"{WORKSPACE_BASE}/model/regras_classificacao.json") as f:
 
 with open(f"{WORKSPACE_BASE}/model/few_shot_examples.json") as f:
     fewshot_data = json.load(f)
+
+# ── helpers inline (agent.py importa mlflow, incompatível com Serverless) ──
+
+_SECTION_LABELS = {
+    "ativo_circulante":       "Ativo Circulante",
+    "ativo_nao_circulante":   "Ativo Não Circulante",
+    "ativo_permanente":       "Ativo Permanente",
+    "passivo_circulante":     "Passivo Circulante",
+    "passivo_nao_circulante": "Passivo Não Circulante",
+    "patrimonio_liquido":     "Patrimônio Líquido",
+    "dre":                    "DRE — Demonstração do Resultado",
+}
+
+
+def build_depara_section(depara: dict) -> str:
+    sections: dict[str, list] = {}
+    for path, entry in depara.items():
+        top = path.split(".")[0]
+        sections.setdefault(top, []).append((path, entry["conceito"], entry["aliases"]))
+    lines = [
+        "## DICIONÁRIO DE CONTAS (DE-PARA)", "",
+        "Se o nome de uma linha do documento corresponder (exato ou similar) a um dos aliases abaixo,",
+        "mapeie para o campo indicado. Quando houver ambiguidade, use o contexto da seção do balanço.", "",
+    ]
+    for section_key, field_entries in sections.items():
+        label = _SECTION_LABELS.get(section_key, section_key)
+        lines.append(f"### {label}")
+        lines.append("")
+        for path, conceito, aliases in field_entries:
+            aliases_str = ", ".join(aliases) if isinstance(aliases, list) else aliases
+            lines.append(f"**{path}** — {conceito}")
+            lines.append(f"→ {aliases_str}")
+            lines.append("")
+    return "\n".join(lines)
+
+
+def build_regras_section(regras: list) -> str:
+    if not regras:
+        return ""
+    lines = [
+        "## REGRAS DE CLASSIFICAÇÃO CONTÁBIL", "",
+        "As regras abaixo são OBRIGATÓRIAS e têm prioridade sobre qualquer interpretação individual.", "",
+    ]
+    for r in regras:
+        lines.append(f"### {r['id']}. {r['titulo']}")
+        lines.append(r["regra"])
+        lines.append("")
+    return "\n".join(lines)
+
+
+INSTRUCTIONS = (
+    "* O documento pode conter MÚLTIPLAS colunas de dados: diferentes tipos de entidade "
+    "(Consolidado, Controladora/Individual) e/ou diferentes períodos (datas de referência). "
+    "Você DEVE extrair TODAS as combinações presentes, gerando um elemento no array para cada "
+    "combinação única de (tipo_entidade, periodo). Exemplos comuns: "
+    "[Consolidado 2024-12-31, Controladora 2024-12-31], "
+    "[Consolidado 2024-12-31, Consolidado 2023-12-31], "
+    "[Consolidado 2024-12-31, Controladora 2024-12-31, Consolidado 2023-12-31, Controladora 2023-12-31].\n"
+    "* Para cada elemento, preencha `tipo_entidade` com CONSOLIDADO, CONTROLADORA ou INDIVIDUAL, "
+    "conforme o cabeçalho da coluna correspondente no documento.\n"
+    "* Substitua qualquer valor null, vazio ou não informado por zero.\n"
+    "* Formate todos os números para exibir exatamente 2 casas decimais, usando ponto como separador, "
+    "mesmo que o valor seja inteiro ou zero (ex: 834988.00, 0.00, 15.50).\n"
+    "* Preencha o objeto `fontes` no JSON de saída: para cada campo extraído, indique qual texto exato do PDF "
+    "originou o valor. Use o caminho do campo como chave (ex: 'ativo_circulante.impostos_a_recuperar') "
+    "e como valor descreva brevemente: o(s) nome(s) da(s) linha(s) do documento, os valores individuais "
+    "e a operação realizada (ex: soma, leitura direta). "
+    "Exemplo: 'Impostos a recuperar (2.411) + IRPJ e CSLL a compensar (4.596) = 7.007 (escala: milhares)'. "
+    "Se o valor foi lido diretamente de uma única linha, indique apenas o nome da linha e o valor. "
+    "Inclua fontes apenas para campos com valor diferente de zero.\n\n"
+)
+
+SYSTEM_PROMPT_TEMPLATE = """\
+Você é um especialista em análise de demonstrações financeiras brasileiras.
+Sua tarefa é extrair informações estruturadas de documentos financeiros (Balanço Patrimonial e DRE).
+
+{depara}
+
+{regras}
+
+## INSTRUÇÕES DE EXTRAÇÃO
+
+{instructions}
+{fewshot}
+Retorne SOMENTE um JSON array válido seguindo exatamente o schema fornecido. Sem texto adicional.\
+"""
 
 
 def _build_fewshot_section(examples: list) -> str:
@@ -92,7 +170,7 @@ def _build_fewshot_section(examples: list) -> str:
     return "\n".join(lines)
 
 
-SYSTEM_PROMPT_FULL = SYSTEM_PROMPT.format(
+SYSTEM_PROMPT_FULL = SYSTEM_PROMPT_TEMPLATE.format(
     depara=build_depara_section(depara_data),
     regras=build_regras_section(regras_data),
     instructions=INSTRUCTIONS,
