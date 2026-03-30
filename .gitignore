@@ -6,7 +6,6 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
-dist/
 build/
 
 # Node / Frontend
