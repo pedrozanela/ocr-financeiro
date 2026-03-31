@@ -14,3 +14,4 @@ frontend/tsconfig*.json
 frontend/package*.json
 scripts/
 *.md
+*.pdf

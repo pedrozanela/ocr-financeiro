@@ -17,7 +17,7 @@ import os
 from collections import defaultdict
 
 # Parametros (injetados via DABs job ou widgets manuais)
-dbutils.widgets.text("catalog", "pedro_zanela")
+dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("secret_scope", "ocr-financeiro")
 dbutils.widgets.text("secret_key", "pat-servico")
@@ -31,9 +31,9 @@ UC_MODEL_NAME = f"{catalog}.{schema}.extrator_financeiro"
 ENDPOINT_NAME = f"extrator-financeiro"
 try:
     _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().getOrElse(None)
-    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else "/Workspace/Users/pedro.zanela@databricks.com/techfin"
+    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else "/Workspace/Users/carlos.dip@databricks.com/ocr-financeiro"
 except Exception:
-    WORKSPACE_PATH = "/Workspace/Users/pedro.zanela@databricks.com/techfin"
+    WORKSPACE_PATH = "/Workspace/Users/carlos.dip@databricks.com/ocr-financeiro"
 MAX_EXAMPLES = 20
 
 # COMMAND ----------
@@ -213,7 +213,14 @@ from mlflow.types.schema import Schema, ColSpec
 
 mlflow.set_registry_uri("databricks-uc")
 
-EXPERIMENT_ID = "1305773837091373"
+_exp_name = f"/Users/{spark.sql('SELECT current_user()').collect()[0][0]}/ocr-financeiro"
+_exp = mlflow.get_experiment_by_name(_exp_name)
+if _exp is None:
+    EXPERIMENT_ID = mlflow.create_experiment(_exp_name)
+    print(f"Experimento criado: {_exp_name} (ID: {EXPERIMENT_ID})")
+else:
+    EXPERIMENT_ID = _exp.experiment_id
+    print(f"Experimento existente: {_exp_name} (ID: {EXPERIMENT_ID})")
 
 # Artifacts ficam no workspace path (acessível via /Workspace)
 AGENT_FILE  = f"{WORKSPACE_PATH}/model/agent.py"

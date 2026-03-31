@@ -1,22 +1,25 @@
 """
 OCR Financeiro — Configuração centralizada.
-Todos os valores são lidos de variáveis de ambiente com fallbacks para o ambiente de dev.
+Todos os valores são lidos de variáveis de ambiente com fallbacks.
 
-Para produção: defina as variáveis no app.yaml, no .env, ou no Databricks Job.
+Os defaults abaixo refletem o último ambiente deployado.
+Para novo ambiente: atualize os defaults ou exporte as variáveis de ambiente.
+Em produção (Databricks App), os valores vêm do app.yaml.
+Em jobs (DABs), os valores vêm dos base_parameters no databricks.yml.
 """
 import os
 
 # ---------------------------------------------------------------------------
 # Databricks Workspace
 # ---------------------------------------------------------------------------
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://e2-demo-field-eng.cloud.databricks.com")
-DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "DEFAULT")
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://fevm-cedip-fevm-aws-classic-stable.cloud.databricks.com")
+DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "fevm")
 IS_DATABRICKS_APP = bool(os.environ.get("DATABRICKS_APP_NAME"))
 
 # ---------------------------------------------------------------------------
 # Unity Catalog
 # ---------------------------------------------------------------------------
-UC_CATALOG = os.environ.get("UC_CATALOG", "pedro_zanela")
+UC_CATALOG = os.environ.get("UC_CATALOG", "cedip_fevm_aws_classic_stable_catalog")
 UC_SCHEMA = os.environ.get("UC_SCHEMA", "ocr_financeiro")
 
 # Tabelas
@@ -47,18 +50,18 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "pat-servico")
 # ---------------------------------------------------------------------------
 # MLflow
 # ---------------------------------------------------------------------------
-MLFLOW_EXPERIMENT_ID = os.environ.get("MLFLOW_EXPERIMENT_ID", "1305773837091373")
+MLFLOW_EXPERIMENT_ID = os.environ.get("MLFLOW_EXPERIMENT_ID", "106740214401905")
 
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
-FEWSHOT_JOB_ID = int(os.environ.get("FEWSHOT_JOB_ID", "249734264921105"))
+FEWSHOT_JOB_ID = int(os.environ.get("FEWSHOT_JOB_ID", "220863263287540"))
 
 # ---------------------------------------------------------------------------
 # Warehouses
 # ---------------------------------------------------------------------------
-WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "862f1d757f0424f7")
-SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "e9b34f7a2e4b0561")
+WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "2c3975c5e258e46b")
+SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "95673eae327f2ace")
 
 
 # ---------------------------------------------------------------------------

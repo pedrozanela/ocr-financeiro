@@ -1,0 +1,207 @@
+# =============================================================================
+# OCR Financeiro — Databricks Asset Bundle
+#
+# Para deploy em novo ambiente:
+#   1. Atualizar os defaults das variaveis abaixo (catalog, warehouse IDs)
+#   2. Atualizar workspace.root_path com seu email
+#   3. Adicionar/editar o target com seu profile
+#   4. Rodar: databricks bundle validate --target <target>
+#   5. Rodar: databricks bundle deploy --target <target>
+#
+# Guia completo: MIGRATION.md
+# =============================================================================
+
+bundle:
+  name: ocr-financeiro
+
+variables:
+  catalog:
+    default: cedip_fevm_aws_classic_stable_catalog
+  schema:
+    default: ocr_financeiro
+  warehouse_id:
+    default: "2c3975c5e258e46b"
+  serverless_warehouse_id:
+    default: "95673eae327f2ace"
+  secret_scope:
+    default: "ocr-financeiro"
+  secret_key:
+    default: "pat-servico"
+  endpoint_name:
+    default: "extrator-financeiro"
+
+workspace:
+  root_path: /Workspace/Users/carlos.dip@databricks.com/.bundle/ocr-financeiro
+
+targets:
+  fevm:
+    default: true
+    workspace:
+      profile: fevm
+
+resources:
+  jobs:
+    setup_infrastructure:
+      name: "ocr-financeiro-setup-infrastructure"
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ./notebooks/setup_infrastructure.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+
+    run_llm_extraction:
+      name: "ocr-financeiro-run-llm"
+      tasks:
+        - task_key: extract
+          notebook_task:
+            notebook_path: ./notebooks/run_llm_from_table.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              endpoint: ${var.endpoint_name}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+
+    reprocess_all:
+      name: "ocr-financeiro-reprocess-all"
+      tasks:
+        - task_key: reprocess
+          notebook_task:
+            notebook_path: ./notebooks/reprocess_all.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
+              endpoint: ${var.endpoint_name}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+
+    update_fewshot_weekly:
+      name: "ocr-financeiro-atualizar-modelo"
+      tasks:
+        - task_key: update_fewshot
+          notebook_task:
+            notebook_path: ./notebooks/update_fewshot.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * MON"
+        timezone_id: "America/Sao_Paulo"
+        pause_status: PAUSED
+
+    grant_permissions:
+      name: "ocr-financeiro-grant-permissions"
+      tasks:
+        - task_key: grant
+          notebook_task:
+            notebook_path: ./notebooks/grant_permissions.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              sp_client_id: ""
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+
+    register_model:
+      name: "ocr-financeiro-register-model"
+      tasks:
+        - task_key: register
+          notebook_task:
+            notebook_path: ./notebooks/register_model.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+
+    batch_job:
+      name: "ocr-financeiro-batch-job"
+      tasks:
+        - task_key: batch
+          notebook_task:
+            notebook_path: ./notebooks/batch_job.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
+              endpoint: ${var.endpoint_name}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+            source: WORKSPACE
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER

@@ -1,3 +1,5 @@
+# Databricks App config — atualizar env vars para cada ambiente.
+# Guia completo: MIGRATION.md
 command:
   - python
   - -m
@@ -19,12 +21,12 @@ resources:
 env:
   # Warehouses
   - name: WAREHOUSE_ID
-    value: "862f1d757f0424f7"
+    value: "2c3975c5e258e46b"
   - name: SERVERLESS_WAREHOUSE_ID
-    value: "862f1d757f0424f7"
+    value: "95673eae327f2ace"
   # Unity Catalog
   - name: UC_CATALOG
-    value: "pedro_zanela"
+    value: "cedip_fevm_aws_classic_stable_catalog"
   - name: UC_SCHEMA
     value: "ocr_financeiro"
   # Serving Endpoint
@@ -37,4 +39,4 @@ env:
     value: "pat-servico"
   # Jobs
   - name: FEWSHOT_JOB_ID
-    value: "249734264921105"
+    value: "220863263287540"

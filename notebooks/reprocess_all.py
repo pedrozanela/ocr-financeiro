@@ -16,9 +16,9 @@ import requests
 from pyspark.sql.functions import expr, concat_ws
 
 # Configuração via widgets (compatível com Serverless)
-dbutils.widgets.text("catalog",       "pedro_zanela")
+dbutils.widgets.text("catalog",       "cedip_fevm_aws_classic_stable_catalog")
 dbutils.widgets.text("schema",        "ocr_financeiro")
-dbutils.widgets.text("volume_path",   "/Volumes/pedro_zanela/ocr_financeiro/pdfs")
+dbutils.widgets.text("volume_path",   "/Volumes/cedip_fevm_aws_classic_stable_catalog/ocr_financeiro/documentos_pdf")
 dbutils.widgets.text("endpoint",      "extrator-financeiro")
 dbutils.widgets.text("secret_scope",  "ocr-financeiro")
 dbutils.widgets.text("secret_key",    "pat-servico")

@@ -157,15 +157,25 @@ class TechFinExtractorAgent(PythonModel):
     def load_context(self, context):
         from openai import OpenAI
 
-        # Auth: token injetado via environment_vars do endpoint (ou Databricks SDK local)
-        try:
-            from databricks.sdk import WorkspaceClient
-            w = WorkspaceClient()
-            token = w.config.token
-            host  = w.config.host
-        except Exception:
-            token = os.environ.get("DATABRICKS_TOKEN", "token")
-            host  = os.environ.get("DATABRICKS_HOST", "https://e2-demo-field-eng.cloud.databricks.com")
+        # Auth: prefer DATABRICKS_TOKEN env var (injected via endpoint secrets),
+        # fall back to WorkspaceClient SDK for local dev
+        token = os.environ.get("DATABRICKS_TOKEN")
+        host  = os.environ.get("DATABRICKS_HOST")
+        if not token:
+            try:
+                from databricks.sdk import WorkspaceClient
+                w = WorkspaceClient()
+                token = w.config.token
+                host  = host or w.config.host
+            except Exception:
+                token = "token"
+        if not host:
+            try:
+                from databricks.sdk import WorkspaceClient
+                w = WorkspaceClient()
+                host = w.config.host
+            except Exception:
+                host = "https://fevm-cedip-fevm-aws-classic-stable.cloud.databricks.com"
 
         if not host.startswith("http"):
             host = f"https://{host}"

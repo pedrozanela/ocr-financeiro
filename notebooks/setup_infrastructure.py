@@ -7,7 +7,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "pedro_zanela")
+dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
 dbutils.widgets.text("schema", "ocr_financeiro")
 
 catalog = dbutils.widgets.get("catalog")
@@ -56,7 +56,9 @@ spark.sql(f"""
         cnpj STRING,
         tipo_demonstrativo STRING,
         moeda STRING,
-        escala_valores STRING
+        escala_valores STRING,
+        processado_em TIMESTAMP,
+        modelo_versao STRING
     ) USING DELTA
     TBLPROPERTIES (
         'delta.columnMapping.mode' = 'name',
@@ -92,6 +94,30 @@ print("Tabela correcoes OK")
 
 # COMMAND ----------
 
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {catalog}.{schema}.resultados_final (
+        document_name STRING,
+        tipo_entidade STRING,
+        periodo STRING,
+        extracted_json STRING,
+        razao_social STRING,
+        cnpj STRING,
+        tipo_demonstrativo STRING,
+        moeda STRING,
+        escala_valores STRING,
+        atualizado_em TIMESTAMP,
+        atualizado_por STRING
+    ) USING DELTA
+    TBLPROPERTIES (
+        'delta.columnMapping.mode' = 'name',
+        'delta.minReaderVersion' = '2',
+        'delta.minWriterVersion' = '5'
+    )
+""")
+print("Tabela resultados_final OK")
+
+# COMMAND ----------
+
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.documentos_pdf")
 print("Volume documentos_pdf OK")
 
@@ -107,6 +133,7 @@ Infraestrutura criada:
   Schema:  {catalog}.{schema}
   Tabelas: {catalog}.{schema}.documentos
            {catalog}.{schema}.resultados
+           {catalog}.{schema}.resultados_final
            {catalog}.{schema}.correcoes
   Volume:  /Volumes/{catalog}/{schema}/documentos_pdf
 """)

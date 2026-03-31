@@ -34,11 +34,12 @@ PDF  ──>  ai_parse_document  ──>  documentos (texto)
 
 ```
 .
+├── databricks.yml                   # DABs bundle config (jobs, variaveis, targets)
 ├── config.py                        # Configuracao centralizada (todas as env vars)
 ├── app.py                           # FastAPI entrypoint
 ├── app.yaml                         # Databricks App config
 ├── requirements.txt
-├── .env.example                     # Template de variaveis de ambiente
+├── .databricksignore                # Arquivos excluidos do sync
 │
 ├── model/                           # MLflow PythonModel + artifacts
 │   ├── agent.py                     # Modelo de extracao
@@ -63,17 +64,20 @@ PDF  ──>  ai_parse_document  ──>  documentos (texto)
 │       ├── FinancialReview.tsx       # Editor multi-aba
 │       ├── FieldSection.tsx          # Campos editaveis
 │       ├── PontosDeAtencao.tsx       # Validacoes contabeis automaticas
-│       ├── FontesPanel.tsx           # Audit trail
+│       ├── FontesPanel.tsx          # Audit trail
 │       ├── fieldDefinitions.ts       # 44 campos DRE + Ativo/Passivo
 │       ├── DocumentList.tsx          # Sidebar de documentos
 │       └── MetricsDashboard.tsx      # Metricas
 │
-├── scripts/                         # Execucao local
+├── scripts/                         # Execucao local (alternativa aos notebooks)
 │   ├── log_new_version.py           # Registra modelo + atualiza endpoint
 │   ├── generate_fewshot.py          # Gera few-shot a partir das correcoes
 │   └── update_fewshot_and_deploy.py # Pipeline completo (fewshot + log + deploy)
 │
-├── notebooks/                       # Execucao no Databricks (Jobs)
+├── notebooks/                       # Execucao no Databricks (via DABs jobs)
+│   ├── setup_infrastructure.py      # Cria schema, tabelas e volume (1x)
+│   ├── register_model.py           # Registra modelo no MLflow UC (1x)
+│   ├── grant_permissions.py         # Concede permissoes ao SP da app (1x)
 │   ├── run_llm_from_table.py        # Batch: texto ja extraido -> endpoint -> resultados
 │   ├── update_fewshot.py            # Job agendado: atualiza modelo com correcoes
 │   ├── batch_job.py                 # Batch: PDF -> texto -> endpoint -> resultados
@@ -163,12 +167,13 @@ Aplicativo Databricks (FastAPI + React).
 
 ## Tabelas
 
-Todas no schema `{UC_CATALOG}.{UC_SCHEMA}` (default: `pedro_zanela.ocr_financeiro`).
+Todas no schema `{UC_CATALOG}.{UC_SCHEMA}`.
 
 | Tabela | Descricao |
 |---|---|
 | `documentos` | Texto extraido dos PDFs (via `ai_parse_document`) |
 | `resultados` | Dados estruturados — 1 linha por (documento, tipo_entidade, periodo) |
+| `resultados_final` | Resultados com correcoes aplicadas (para export) |
 | `correcoes` | Correcoes humanas (campo, valor extraido, valor correto, comentario, status) |
 
 **Volume**: `documentos_pdf` — PDFs originais dos balancos.
@@ -183,46 +188,71 @@ Todas no schema `{UC_CATALOG}.{UC_SCHEMA}` (default: `pedro_zanela.ocr_financeir
 | `tipo_entidade` | STRING | CONSOLIDADO, CONTROLADORA ou INDIVIDUAL (PK) |
 | `periodo` | STRING | YYYY-MM-DD (PK) |
 | `extracted_json` | STRING | JSON com todos os campos financeiros |
-| `assessment_json` | STRING | Reservado para avaliacao futura |
+| `assessment_json` | STRING | Avaliacao de qualidade do LLM Judge |
 | `token_usage_json` | STRING | Tokens consumidos (input, output, custo) |
 | `razao_social` | STRING | Nome da empresa |
 | `cnpj` | STRING | CNPJ |
 | `tipo_demonstrativo` | STRING | INDIVIDUAL ANUAL, CONSOLIDADO TRIMESTRAL, etc. |
 | `moeda` | STRING | REAL, USD |
 | `escala_valores` | STRING | UNIDADE, MILHARES, MILHOES |
+| `processado_em` | TIMESTAMP | Data/hora do processamento |
+| `modelo_versao` | STRING | Versao do endpoint usado |
 
 ## Configuracao
 
-Todas as variaveis em `config.py`, lidas de variaveis de ambiente com fallbacks:
+Tres arquivos controlam a configuracao:
 
-| Variavel | Default | Descricao |
+| Arquivo | Escopo | Quando usar |
 |---|---|---|
-| `UC_CATALOG` | `pedro_zanela` | Catalogo Unity Catalog |
-| `UC_SCHEMA` | `ocr_financeiro` | Schema |
-| `OCR_ENDPOINT` | `extrator-financeiro` | Serving endpoint |
-| `OCR_MODEL` | `databricks-claude-sonnet-4-6` | LLM de extracao |
-| `SECRET_SCOPE` | `ocr-financeiro` | Scope do Service Principal |
-| `SECRET_KEY` | `pat-servico` | Chave do PAT |
-| `WAREHOUSE_ID` | — | SQL Warehouse |
-| `SERVERLESS_WAREHOUSE_ID` | — | Serverless Warehouse (ai_parse_document) |
-| `MLFLOW_EXPERIMENT_ID` | — | MLflow experiment |
-| `FEWSHOT_JOB_ID` | — | Job de atualizacao do modelo |
+| `databricks.yml` | Jobs, variaveis, targets | Parametros do DABs bundle (catalogo, warehouse IDs, secrets) |
+| `config.py` | Fallbacks para dev local | Defaults usados quando env vars nao estao definidas |
+| `app.yaml` | Databricks App | Env vars injetadas no runtime da app |
 
-Para outro ambiente: altere `app.yaml` e/ou exporte as variaveis. Veja [MIGRATION.md](MIGRATION.md) para o guia completo.
+Todas as variaveis sao lidas de environment com fallbacks em `config.py`:
 
-## Deploy Rapido
+| Variavel | Descricao |
+|---|---|
+| `UC_CATALOG` | Catalogo Unity Catalog |
+| `UC_SCHEMA` | Schema (default: `ocr_financeiro`) |
+| `OCR_ENDPOINT` | Serving endpoint (default: `extrator-financeiro`) |
+| `OCR_MODEL` | LLM de extracao (default: `databricks-claude-sonnet-4-6`) |
+| `SECRET_SCOPE` | Scope de secrets (default: `ocr-financeiro`) |
+| `SECRET_KEY` | Chave do PAT no scope (default: `pat-servico`) |
+| `WAREHOUSE_ID` | SQL Warehouse para queries da app |
+| `SERVERLESS_WAREHOUSE_ID` | Serverless Warehouse para `ai_parse_document` |
+| `MLFLOW_EXPERIMENT_ID` | MLflow experiment (criado automaticamente pelo notebook) |
+| `FEWSHOT_JOB_ID` | Job de atualizacao do modelo |
+
+## Deploy via DABs
+
+O projeto usa Databricks Asset Bundles para deploy. Os jobs e notebooks sao parametrizados via `databricks.yml`.
 
 ```bash
-# Build frontend
+# 1. Configurar variaveis em databricks.yml, config.py e app.yaml
+
+# 2. Build frontend
 cd frontend && npm install && npx vite build && cd ..
 
-# Sync + deploy
-databricks sync . /Workspace/Users/<user>/techfin --profile <profile> --watch=false
-databricks workspace import-dir frontend/dist /Workspace/Users/<user>/techfin/frontend/dist --overwrite --profile <profile>
-databricks apps deploy <app-name> --source-code-path /Workspace/Users/<user>/techfin --profile <profile>
+# 3. Criar secret scope + PAT
+databricks secrets create-scope ocr-financeiro --profile <profile>
+databricks tokens create --comment "ocr-financeiro" --profile <profile>
+databricks secrets put-secret ocr-financeiro pat-servico --string-value "<token>" --profile <profile>
+
+# 4. Deploy bundle (sync + jobs)
+databricks bundle deploy --target <target>
+
+# 5. Criar infraestrutura, registrar modelo
+databricks bundle run setup_infrastructure --target <target>
+databricks bundle run register_model --target <target>
+
+# 6. Criar serving endpoint + app (ver MIGRATION.md para detalhes)
+
+# 7. Upload PDFs + extrair
+databricks fs cp meu_balanco.pdf "dbfs:/Volumes/<catalog>/ocr_financeiro/documentos_pdf/" --profile <profile>
+databricks bundle run run_llm_extraction --target <target>
 ```
 
-Para migracao completa em novo ambiente, veja [MIGRATION.md](MIGRATION.md).
+Para o guia completo passo a passo, veja [MIGRATION.md](MIGRATION.md).
 
 ## DRE
 

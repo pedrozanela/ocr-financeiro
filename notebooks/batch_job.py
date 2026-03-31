@@ -11,13 +11,26 @@ import time
 import requests
 from pyspark.sql.functions import expr, concat_ws
 
-VOLUME_PATH     = "/Volumes/pedro_zanela/ia/dados/techfin/ocr"
-RESULTS_TABLE   = "pedro_zanela.ia.new_ocr_techfin_results"
-OCR_ENDPOINT    = "techfin-ocr-v4"
-DATABRICKS_HOST = "https://e2-demo-field-eng.cloud.databricks.com"
+# Configuração via widgets (compatível com DABs e Serverless)
+dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
+dbutils.widgets.text("schema", "ocr_financeiro")
+dbutils.widgets.text("volume_path", "/Volumes/cedip_fevm_aws_classic_stable_catalog/ocr_financeiro/documentos_pdf")
+dbutils.widgets.text("endpoint", "extrator-financeiro")
+dbutils.widgets.text("secret_scope", "ocr-financeiro")
+dbutils.widgets.text("secret_key", "pat-servico")
+
+_cat = dbutils.widgets.get("catalog")
+_sch = dbutils.widgets.get("schema")
+VOLUME_PATH     = dbutils.widgets.get("volume_path")
+RESULTS_TABLE   = f"{_cat}.{_sch}.resultados"
+SOURCE_TABLE    = f"{_cat}.{_sch}.documentos"
+OCR_ENDPOINT    = dbutils.widgets.get("endpoint")
+DATABRICKS_HOST = spark.conf.get("spark.databricks.workspaceUrl", "fevm-cedip-fevm-aws-classic-stable.cloud.databricks.com")
+if not DATABRICKS_HOST.startswith("http"):
+    DATABRICKS_HOST = f"https://{DATABRICKS_HOST}"
 ENDPOINT_URL    = f"{DATABRICKS_HOST}/serving-endpoints/{OCR_ENDPOINT}/invocations"
 
-TOKEN   = dbutils.secrets.get("pedro-zanela-scope", "techfin-ocr-pat")
+TOKEN   = dbutils.secrets.get(dbutils.widgets.get("secret_scope"), dbutils.widgets.get("secret_key"))
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
 # COMMAND ----------

@@ -1,175 +1,176 @@
-# Guia de Migracao — OCR Financeiro
+# Guia de Deploy — OCR Financeiro
 
-Passo a passo para deployar o projeto em um novo workspace Databricks.
+Deploy do projeto em um novo workspace Databricks usando Databricks Asset Bundles (DABs).
 
 ## Pre-requisitos
 
-- Databricks CLI instalado e autenticado no workspace destino
-- SQL Warehouse ativo (Pro ou Serverless)
+- Databricks CLI v0.230+ instalado (`databricks --version`)
+- CLI autenticado no workspace destino (`databricks auth login`)
+- SQL Warehouse disponivel (Pro ou Serverless)
 - Foundation Model API habilitada (Claude Sonnet 4.6)
-- Python 3.10+ com conda
+- Node.js 18+ (para build do frontend)
+- Python 3.10+ com pip (para `log_new_version.py` local — opcional)
 
-## 1. Clonar o repositorio
+## Visao Geral
 
-```bash
-git clone git@github.com:pedro-zanela_data/ocr-financeiro.git
-cd ocr-financeiro
+O deploy usa DABs (`databricks.yml`) para gerenciar jobs, sync de codigo e parametrizacao.
+A app Databricks e o serving endpoint sao criados via CLI separadamente.
+
+```
+1. Configurar variaveis     →  databricks.yml, config.py, app.yaml
+2. Build frontend           →  npm install && npx vite build
+3. Criar secret scope + PAT →  databricks secrets ...
+4. Deploy bundle            →  databricks bundle deploy
+5. Setup infraestrutura     →  databricks bundle run setup_infrastructure
+6. Registrar modelo         →  databricks bundle run register_model
+7. Criar serving endpoint   →  databricks serving-endpoints create ...
+8. Upload PDFs              →  databricks fs cp ...
+9. Criar e deployar app     →  databricks apps create + deploy
+10. Conceder permissoes     →  databricks bundle run grant_permissions
+11. Ingerir texto + extrair →  SQL + databricks bundle run run_llm_extraction
 ```
 
-## 2. Autenticar no workspace destino
+## 1. Configurar variaveis
 
-```bash
-databricks auth login --host https://SEU-WORKSPACE.cloud.databricks.com --profile PROD
+Editar `databricks.yml` — substituir as variaveis `default` pelo seu ambiente:
+
+```yaml
+variables:
+  catalog:
+    default: SEU_CATALOGO             # ex: meu_catalogo
+  schema:
+    default: ocr_financeiro           # pode manter
+  warehouse_id:
+    default: "SEU_WAREHOUSE_ID"       # databricks warehouses list
+  serverless_warehouse_id:
+    default: "SEU_SERVERLESS_WH_ID"   # pode ser o mesmo
+  secret_scope:
+    default: "ocr-financeiro"         # pode manter
+  secret_key:
+    default: "pat-servico"            # pode manter
+  endpoint_name:
+    default: "extrator-financeiro"    # pode manter
+
+workspace:
+  root_path: /Workspace/Users/SEU_EMAIL/.bundle/ocr-financeiro
+
+targets:
+  meu_target:
+    default: true
+    workspace:
+      profile: MEU_PROFILE
 ```
 
-## 3. Criar schema, tabelas e volume
-
-```sql
--- Executar no SQL Editor do workspace destino
-
--- Schema dedicado
-CREATE SCHEMA IF NOT EXISTS SEU_CATALOGO.ocr_financeiro;
-
--- Tabela de documentos (texto extraido dos PDFs)
-CREATE TABLE IF NOT EXISTS SEU_CATALOGO.ocr_financeiro.documentos (
-    document_name STRING,
-    document_text STRING,
-    ingested_at TIMESTAMP
-) USING DELTA;
-
--- Tabela de resultados (dados estruturados)
-CREATE TABLE IF NOT EXISTS SEU_CATALOGO.ocr_financeiro.resultados (
-    document_name STRING,
-    tipo_entidade STRING,
-    periodo STRING,
-    extracted_json STRING,
-    assessment_json STRING,
-    token_usage_json STRING,
-    razao_social STRING,
-    cnpj STRING,
-    tipo_demonstrativo STRING,
-    moeda STRING,
-    escala_valores STRING
-) USING DELTA
-TBLPROPERTIES (
-    'delta.columnMapping.mode' = 'name',
-    'delta.minReaderVersion' = '2',
-    'delta.minWriterVersion' = '5'
-);
-
--- Tabela de correcoes (feedback humano)
-CREATE TABLE IF NOT EXISTS SEU_CATALOGO.ocr_financeiro.correcoes (
-    document_name STRING,
-    campo STRING,
-    valor_extraido STRING,
-    valor_correto STRING,
-    comentario STRING,
-    criado_em TIMESTAMP,
-    tipo_entidade STRING,
-    periodo STRING,
-    status STRING,
-    confirmado_em TIMESTAMP,
-    confirmado_por STRING
-) USING DELTA;
-
--- Volume para PDFs
-CREATE VOLUME IF NOT EXISTS SEU_CATALOGO.ocr_financeiro.documentos_pdf;
-```
-
-## 4. Criar Service Principal
-
-```bash
-# Criar SP
-databricks service-principals create --display-name "ocr-financeiro-sp" --profile PROD
-
-# Anotar o applicationId retornado (ex: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)
-```
-
-## 5. Gerar PAT e criar secret scope
-
-```bash
-# Gerar PAT (execute logado como admin)
-databricks api post /api/2.0/token/create \
-    --json '{"comment": "ocr-financeiro SP PAT", "lifetime_seconds": 0}' \
-    --profile PROD
-
-# Anotar o token_value retornado
-
-# Criar scope
-databricks secrets create-scope ocr-financeiro --profile PROD
-
-# Armazenar PAT
-databricks secrets put-secret ocr-financeiro pat-servico \
-    --string-value "TOKEN_AQUI" --profile PROD
-```
-
-## 6. Conceder permissoes ao SP
-
-```sql
--- Substituir SP_APP_ID pelo applicationId do passo 4
-
-GRANT USE CATALOG ON CATALOG SEU_CATALOGO TO `SP_APP_ID`;
-GRANT USE SCHEMA ON SCHEMA SEU_CATALOGO.ocr_financeiro TO `SP_APP_ID`;
-GRANT ALL PRIVILEGES ON SCHEMA SEU_CATALOGO.ocr_financeiro TO `SP_APP_ID`;
-GRANT ALL PRIVILEGES ON VOLUME SEU_CATALOGO.ocr_financeiro.documentos_pdf TO `SP_APP_ID`;
-```
-
-## 7. Upload dos PDFs
-
-Copiar os PDFs para o volume:
-
-```bash
-# Um por um
-databricks fs cp meu_arquivo.pdf \
-    dbfs:/Volumes/SEU_CATALOGO/ocr_financeiro/documentos_pdf/meu_arquivo.pdf \
-    --profile PROD
-
-# Pasta inteira
-databricks fs cp -r ./pdfs/ \
-    dbfs:/Volumes/SEU_CATALOGO/ocr_financeiro/documentos_pdf/ \
-    --profile PROD
-```
-
-## 8. Registrar o modelo no MLflow
-
-```bash
-# Criar experiment
-databricks api post /api/2.0/mlflow/experiments/create \
-    --json '{"name": "/Users/SEU_EMAIL/ocr-financeiro"}' \
-    --profile PROD
-
-# Anotar o experiment_id retornado
-```
-
-Editar `config.py` com os valores do novo ambiente:
+Editar `config.py` — atualizar os defaults (usado como fallback no dev local):
 
 ```python
-UC_CATALOG = "SEU_CATALOGO"
-UC_SCHEMA = "ocr_financeiro"
-MLFLOW_EXPERIMENT_ID = "EXPERIMENT_ID_ANOTADO"
-DATABRICKS_PROFILE = "PROD"
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://SEU-WORKSPACE.cloud.databricks.com")
+DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "MEU_PROFILE")
+UC_CATALOG = os.environ.get("UC_CATALOG", "SEU_CATALOGO")
+WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "SEU_WAREHOUSE_ID")
+SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "SEU_SERVERLESS_WH_ID")
 ```
 
-Ou exportar como variaveis de ambiente:
+Editar `app.yaml` — atualizar env vars (usado pela Databricks App):
 
-```bash
-export UC_CATALOG=SEU_CATALOGO
-export MLFLOW_EXPERIMENT_ID=EXPERIMENT_ID_ANOTADO
-export DATABRICKS_PROFILE=PROD
+```yaml
+env:
+  - name: WAREHOUSE_ID
+    value: "SEU_WAREHOUSE_ID"
+  - name: SERVERLESS_WAREHOUSE_ID
+    value: "SEU_SERVERLESS_WH_ID"
+  - name: UC_CATALOG
+    value: "SEU_CATALOGO"
 ```
 
-Logar o modelo:
+> **Nota**: `MLFLOW_EXPERIMENT_ID` e `FEWSHOT_JOB_ID` serao atualizados nos passos seguintes.
+
+## 2. Build do frontend
 
 ```bash
-conda run -n base python scripts/log_new_version.py
+cd frontend && npm install && npx vite build && cd ..
 ```
 
-## 9. Verificar endpoint
+O diretorio `frontend/dist/` sera sincronizado pelo bundle. Os fontes React ficam no `.databricksignore`.
 
-O `log_new_version.py` cria o endpoint automaticamente. Se precisar criar manualmente:
+## 3. Criar secret scope e PAT
+
+O PAT e usado pelos notebooks e pelo serving endpoint para chamar a Foundation Model API.
 
 ```bash
-cat > /tmp/endpoint.json << EOF
+# Criar scope
+databricks secrets create-scope ocr-financeiro --profile MEU_PROFILE
+
+# Gerar PAT (90 dias)
+databricks tokens create --comment "ocr-financeiro" --lifetime-seconds 7776000 --profile MEU_PROFILE
+# Anotar o token_value retornado
+
+# Armazenar no scope
+databricks secrets put-secret ocr-financeiro pat-servico \
+    --string-value "TOKEN_AQUI" --profile MEU_PROFILE
+```
+
+> **Importante**: O PAT precisa ter acesso a Foundation Model API. Teste com:
+> ```bash
+> curl -s -X POST "https://SEU-WORKSPACE.cloud.databricks.com/serving-endpoints/databricks-claude-sonnet-4-6/invocations" \
+>   -H "Authorization: Bearer TOKEN_AQUI" \
+>   -H "Content-Type: application/json" \
+>   -d '{"messages":[{"role":"user","content":"hi"}],"max_tokens":5}'
+> ```
+
+## 4. Deploy do bundle
+
+```bash
+# Validar configuracao
+databricks bundle validate --target meu_target
+
+# Deploy (sync de arquivos + criacao de jobs)
+databricks bundle deploy --target meu_target
+```
+
+Isso cria 7 jobs no workspace e sincroniza todo o codigo.
+
+Anotar o job_id de `ocr-financeiro-atualizar-modelo` (visivel na saida ou via `databricks jobs list`),
+e atualizar em `app.yaml` (`FEWSHOT_JOB_ID`) e `config.py` (`FEWSHOT_JOB_ID`). Re-deploy:
+
+```bash
+databricks bundle deploy --target meu_target
+```
+
+## 5. Setup da infraestrutura
+
+```bash
+databricks bundle run setup_infrastructure --target meu_target
+```
+
+Cria: schema, 4 tabelas (documentos, resultados, resultados_final, correcoes) e volume (documentos_pdf).
+
+Tempo: ~5-7min (inclui provisionamento de cluster).
+
+## 6. Registrar modelo no MLflow
+
+```bash
+databricks bundle run register_model --target meu_target
+```
+
+Registra `SEU_CATALOGO.ocr_financeiro.extrator_financeiro` v1 no Unity Catalog.
+O notebook resolve o experiment automaticamente (cria se nao existir).
+
+Tempo: ~5-7min.
+
+> **Alternativa local** (se quiser rodar da maquina — requer `pip install mlflow boto3 databricks-sdk openai`):
+> ```bash
+> DATABRICKS_CONFIG_PROFILE=MEU_PROFILE python scripts/log_new_version.py
+> ```
+> Nota: pode falhar com erro de S3 se o workspace nao permitir uploads diretos.
+> Nesse caso, use o job do bundle (metodo acima).
+
+## 7. Criar serving endpoint
+
+Substituir `SEU_CATALOGO` e a versao do modelo:
+
+```bash
+cat > /tmp/endpoint.json << 'EOF'
 {
   "name": "extrator-financeiro",
   "config": {
@@ -178,7 +179,7 @@ cat > /tmp/endpoint.json << EOF
       "entity_name": "SEU_CATALOGO.ocr_financeiro.extrator_financeiro",
       "entity_version": "1",
       "workload_size": "Small",
-      "scale_to_zero_enabled": false,
+      "scale_to_zero_enabled": true,
       "environment_vars": {
         "DATABRICKS_TOKEN": "{{secrets/ocr-financeiro/pat-servico}}"
       }
@@ -186,187 +187,173 @@ cat > /tmp/endpoint.json << EOF
   }
 }
 EOF
-databricks serving-endpoints create --json @/tmp/endpoint.json --profile PROD
+databricks serving-endpoints create --json @/tmp/endpoint.json --profile MEU_PROFILE
 ```
 
-Aguardar ~15min ate o endpoint ficar READY:
+Aguardar ate READY (~10-15min):
 
 ```bash
-databricks api get /api/2.0/serving-endpoints/extrator-financeiro --profile PROD \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['state'])"
+# Polling
+databricks serving-endpoints get extrator-financeiro --profile MEU_PROFILE | grep ready
 ```
 
-## 10. Obter Warehouse ID
+> **Nota sobre `DATABRICKS_TOKEN`**: O modelo usa este env var para chamar a Foundation Model API
+> (Claude Sonnet). Se o valor do secret for invalido, o endpoint retorna erro 403 nas chamadas.
+> O modelo prioriza `DATABRICKS_TOKEN` sobre `WorkspaceClient()` automaticamente.
+
+## 8. Upload de PDFs
 
 ```bash
-databricks warehouses list --profile PROD
+# Um arquivo
+databricks fs cp "meu_balanco.pdf" \
+    "dbfs:/Volumes/SEU_CATALOGO/ocr_financeiro/documentos_pdf/meu_balanco.pdf" \
+    --profile MEU_PROFILE
+
+# Pasta inteira
+databricks fs cp -r ./pdfs/ \
+    "dbfs:/Volumes/SEU_CATALOGO/ocr_financeiro/documentos_pdf/" \
+    --profile MEU_PROFILE
 ```
 
-Anotar o ID do warehouse que sera usado.
-
-## 11. Criar a Databricks App
-
-Editar `app.yaml` com os valores do novo ambiente:
-
-```yaml
-env:
-  - name: WAREHOUSE_ID
-    value: "SEU_WAREHOUSE_ID"
-  - name: SERVERLESS_WAREHOUSE_ID
-    value: "SEU_WAREHOUSE_ID"
-  - name: UC_CATALOG
-    value: "SEU_CATALOGO"
-  - name: UC_SCHEMA
-    value: "ocr_financeiro"
-  - name: OCR_ENDPOINT
-    value: "extrator-financeiro"
-  - name: SECRET_SCOPE
-    value: "ocr-financeiro"
-  - name: SECRET_KEY
-    value: "pat-servico"
-  - name: FEWSHOT_JOB_ID
-    value: "JOB_ID_DO_PASSO_12"
-```
-
-Tambem atualizar o `resources:` com o scope correto:
-
-```yaml
-resources:
-  - name: pat-servico
-    secret:
-      scope: ocr-financeiro
-      key: pat-servico
-      permission: READ
-```
-
-## 12. Build e deploy da app
+## 9. Criar e deployar a Databricks App
 
 ```bash
-# Build frontend
-cd frontend && npm install && npx vite build && cd ..
+# Criar a app (aguarda provisionamento ~2min)
+databricks apps create NOME-DA-APP --description "Extrator de dados financeiros" \
+    --no-wait --profile MEU_PROFILE
 
-# Sync para o workspace
-databricks sync . /Workspace/Users/SEU_EMAIL/techfin --profile PROD --watch=false
+# Aguardar status ACTIVE
+databricks apps get NOME-DA-APP --profile MEU_PROFILE | grep state
 
-# Upload do dist (necessario na primeira vez)
-databricks workspace import-dir frontend/dist \
-    /Workspace/Users/SEU_EMAIL/techfin/frontend/dist \
-    --overwrite --profile PROD
-
-# Criar a app
-databricks apps create --name ocr-financeiro \
-    --description "Extracao de Balancos Patrimoniais" --profile PROD
-
-# Deploy
-databricks apps deploy ocr-financeiro \
-    --source-code-path /Workspace/Users/SEU_EMAIL/techfin \
-    --profile PROD
+# Deploy do codigo
+databricks apps deploy NOME-DA-APP \
+    --source-code-path /Workspace/Users/SEU_EMAIL/.bundle/ocr-financeiro/files \
+    --profile MEU_PROFILE
 ```
 
-## 13. Conceder permissoes ao SP da App
+> **Gotcha**: Se `databricks apps create` falhar com "App creation failed unexpectedly",
+> delete e tente novamente com um nome diferente. Pode haver conflito com apps deletadas recentemente.
 
-Apos o primeiro deploy, obter o SP da app:
+## 10. Conceder permissoes ao SP da App
+
+Obter o `service_principal_client_id` da app:
 
 ```bash
-databricks apps get ocr-financeiro --profile PROD | grep service_principal
+databricks apps get NOME-DA-APP --profile MEU_PROFILE | grep service_principal_client_id
 ```
 
-Conceder permissoes (substituir APP_SP_ID):
+Rodar o job de grant (substituir `SP_CLIENT_ID`):
+
+```bash
+databricks jobs run-now --json '{"job_id": JOB_ID_GRANT_PERMISSIONS, "notebook_params": {"sp_client_id": "SP_CLIENT_ID", "catalog": "SEU_CATALOGO", "schema": "ocr_financeiro"}}' --profile MEU_PROFILE
+```
+
+Conceder acesso adicional ao SP:
+
+```bash
+# Acesso ao serving endpoint
+databricks serving-endpoints update-permissions ENDPOINT_ID \
+    --json '{"access_control_list":[{"service_principal_name":"SP_CLIENT_ID","permission_level":"CAN_QUERY"}]}' \
+    --profile MEU_PROFILE
+
+# Acesso ao secret scope
+databricks secrets put-acl ocr-financeiro "SP_CLIENT_ID" READ --profile MEU_PROFILE
+
+# Acesso ao warehouse
+databricks api patch /api/2.0/permissions/sql/warehouses/SEU_WAREHOUSE_ID \
+    --json '{"access_control_list":[{"service_principal_name":"SP_CLIENT_ID","permission_level":"CAN_USE"}]}' \
+    --profile MEU_PROFILE
+```
+
+## 11. Ingerir texto e extrair dados
+
+Os PDFs estao no volume mas precisam ter o texto extraido e inserido na tabela `documentos`.
+
+### Opcao A: Via SQL (recomendado para poucos PDFs)
+
+Executar no SQL Editor ou via API — substituir nomes:
 
 ```sql
-GRANT USE CATALOG ON CATALOG SEU_CATALOGO TO `APP_SP_ID`;
-GRANT USE SCHEMA ON SCHEMA SEU_CATALOGO.ocr_financeiro TO `APP_SP_ID`;
-GRANT SELECT, MODIFY ON SCHEMA SEU_CATALOGO.ocr_financeiro TO `APP_SP_ID`;
-GRANT ALL PRIVILEGES ON VOLUME SEU_CATALOGO.ocr_financeiro.documentos_pdf TO `APP_SP_ID`;
+INSERT INTO SEU_CATALOGO.ocr_financeiro.documentos (document_name, document_text, ingested_at)
+SELECT
+    'meu_balanco.pdf',
+    concat_ws('\n\n',
+        transform(
+            try_cast(ai_parse_document(content):document:elements AS ARRAY<VARIANT>),
+            element -> try_cast(element:content AS STRING)
+        )
+    ),
+    current_timestamp()
+FROM read_files('/Volumes/SEU_CATALOGO/ocr_financeiro/documentos_pdf/meu_balanco.pdf', format => 'binaryFile')
 ```
 
-## 14. Criar job de atualizacao do modelo
+> **Nota**: `ai_parse_document` requer Serverless SQL Warehouse. Use o Serverless Starter Warehouse.
+
+Depois, rodar a extracao LLM:
 
 ```bash
-cat > /tmp/job.json << EOF
-{
-  "name": "ocr-financeiro-atualizar-modelo",
-  "tasks": [{
-    "task_key": "update_fewshot",
-    "notebook_task": {
-      "notebook_path": "/Workspace/Users/SEU_EMAIL/techfin/notebooks/update_fewshot",
-      "source": "WORKSPACE"
-    },
-    "environment_key": "Default"
-  }],
-  "environments": [{"environment_key": "Default", "spec": {"client": "1"}}],
-  "schedule": {
-    "quartz_cron_expression": "0 0 6 ? * MON",
-    "timezone_id": "America/Sao_Paulo",
-    "pause_status": "UNPAUSED"
-  },
-  "max_concurrent_runs": 1,
-  "timeout_seconds": 3600
-}
-EOF
-databricks jobs create --json @/tmp/job.json --profile PROD
+databricks bundle run run_llm_extraction --target meu_target
 ```
 
-Anotar o job_id e atualizar no `app.yaml` (variavel `FEWSHOT_JOB_ID`), re-deploy:
+### Opcao B: Via app (recomendado para uso continuo)
 
-```bash
-databricks sync . /Workspace/Users/SEU_EMAIL/techfin --profile PROD --watch=false
-databricks apps deploy ocr-financeiro \
-    --source-code-path /Workspace/Users/SEU_EMAIL/techfin --profile PROD
-```
+Abrir a URL da app no navegador e usar o botao "Upload" — a app faz tudo automaticamente
+(ai_parse_document + endpoint OCR + salva resultados).
 
-## 15. Atualizar o notebook com valores do ambiente
+## 12. Verificar
 
-Editar `notebooks/update_fewshot.py` linhas 19-24:
-
-```python
-CORRECTIONS_TABLE = "SEU_CATALOGO.ocr_financeiro.correcoes"
-RESULTS_TABLE = "SEU_CATALOGO.ocr_financeiro.resultados"
-UC_MODEL_NAME = "SEU_CATALOGO.ocr_financeiro.extrator_financeiro"
-ENDPOINT_NAME = "extrator-financeiro"
-WORKSPACE_PATH = "/Workspace/Users/SEU_EMAIL/techfin"
-```
-
-E a celula de volume (linha ~183):
-
-```python
-catalog = "SEU_CATALOGO"
-schema = "ocr_financeiro"
-```
-
-E o secret na celula do endpoint (linha ~270):
-
-```python
-"DATABRICKS_TOKEN": "{{secrets/ocr-financeiro/pat-servico}}"
-```
-
-Re-sync:
-
-```bash
-databricks sync . /Workspace/Users/SEU_EMAIL/techfin --profile PROD --watch=false
-```
-
-## 16. Testar
-
-1. Acessar a URL da app (retornada no `databricks apps get ocr-financeiro`)
-2. Fazer upload de um PDF de balanco patrimonial
-3. Verificar se a extracao funciona (deve levar 1-3 minutos)
+1. Acessar a URL da app (retornada por `databricks apps get NOME-DA-APP`)
+2. Verificar que o documento aparece na lista lateral
+3. Navegar pelas abas: Identificacao, Ativo, Passivo, DRE, Fontes, Pontos de Atencao
 4. Testar correcao manual de um campo
-5. Clicar "Atualizar Modelo" e verificar que o job roda com sucesso
-6. Exportar Excel e validar
+5. Exportar Excel e validar formato
 
 ## Checklist
 
-- [ ] Workspace autenticado
-- [ ] Schema + tabelas + volume criados
-- [ ] Service Principal criado
-- [ ] PAT gerado e armazenado no secret scope
-- [ ] Permissoes do SP concedidas
-- [ ] PDFs no volume
-- [ ] Modelo registrado no MLflow
-- [ ] Endpoint READY
-- [ ] App deployada e acessivel
-- [ ] Permissoes do SP da App concedidas
-- [ ] Job de atualizacao criado
-- [ ] Notebook atualizado com valores do ambiente
-- [ ] Upload de PDF testado com sucesso
+```
+[ ] Variaveis configuradas (databricks.yml, config.py, app.yaml)
+[ ] Frontend buildado (frontend/dist/)
+[ ] Secret scope criado com PAT valido
+[ ] Bundle deployado (databricks bundle deploy)
+[ ] FEWSHOT_JOB_ID atualizado e re-deployado
+[ ] Infraestrutura criada (setup_infrastructure)
+[ ] Modelo registrado (register_model)
+[ ] Serving endpoint READY
+[ ] PDFs no volume
+[ ] App criada e deployada
+[ ] Permissoes do SP da App concedidas (UC, endpoint, secrets, warehouse)
+[ ] Texto extraido e LLM rodou com sucesso
+[ ] App acessivel e mostrando dados
+```
+
+## Troubleshooting
+
+### Endpoint retorna 403 "Invalid access token"
+O modelo nao consegue chamar a Foundation Model API. Verificar:
+1. O PAT no secret scope esta valido? Testar com `curl` (passo 3).
+2. O endpoint tem `DATABRICKS_TOKEN: {{secrets/ocr-financeiro/pat-servico}}`?
+3. Se atualizou o secret, force um restart: atualize a versao do modelo no endpoint config.
+
+### `ai_parse_document` falha no job `reprocess_all`
+Esta funcao so roda em Serverless SQL Warehouse, nao em clusters comuns.
+Use a Opcao A (SQL direto) ou a app para ingestao de texto.
+
+### App retorna lista vazia de documentos
+1. Verificar que existem linhas em `resultados`: `SELECT COUNT(*) FROM SEU_CATALOGO.ocr_financeiro.resultados`
+2. Verificar que o SP da app tem SELECT no schema: re-rodar o grant_permissions job.
+3. Verificar que o warehouse esta ativo e o SP tem CAN_USE.
+
+### `databricks apps create` falha repetidamente
+Pode haver conflito de nome com app deletada recentemente. Tente um nome diferente
+ou aguarde ~5min apos a delecao.
+
+### Modelo nao registra via `log_new_version.py` local (erro S3 AccessDenied)
+Workspaces com restricoes de rede nao permitem upload direto de artifacts S3 da maquina local.
+Use o job `register_model` do bundle (roda no cluster dentro do workspace).
+
+### Job `grant_permissions` ignora o `sp_client_id`
+O job usa `base_parameters` do `databricks.yml` (vazio por padrao). Para injetar o SP,
+use `notebook_params` no `run-now`:
+```bash
+databricks jobs run-now --json '{"job_id": ID, "notebook_params": {"sp_client_id": "SP_ID", ...}}'
+```

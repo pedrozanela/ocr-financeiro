@@ -11,7 +11,7 @@ import time
 import requests
 
 # Configuração via widgets (compatível com Serverless)
-dbutils.widgets.text("catalog", "pedro_zanela")
+dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("endpoint", "extrator-financeiro")
 dbutils.widgets.text("secret_scope", "ocr-financeiro")
