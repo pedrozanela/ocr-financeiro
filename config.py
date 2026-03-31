@@ -2,24 +2,23 @@
 OCR Financeiro — Configuração centralizada.
 Todos os valores são lidos de variáveis de ambiente com fallbacks.
 
-Os defaults abaixo refletem o último ambiente deployado.
-Para novo ambiente: atualize os defaults ou exporte as variáveis de ambiente.
 Em produção (Databricks App), os valores vêm do app.yaml.
 Em jobs (DABs), os valores vêm dos base_parameters no databricks.yml.
+Para dev local: exporte as variáveis de ambiente ou edite os defaults abaixo.
 """
 import os
 
 # ---------------------------------------------------------------------------
 # Databricks Workspace
 # ---------------------------------------------------------------------------
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://adb-7405613524140009.9.azuredatabricks.net")
-DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "azfevm")
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "")
+DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "DEFAULT")
 IS_DATABRICKS_APP = bool(os.environ.get("DATABRICKS_APP_NAME"))
 
 # ---------------------------------------------------------------------------
 # Unity Catalog
 # ---------------------------------------------------------------------------
-UC_CATALOG = os.environ.get("UC_CATALOG", "catalog_nqc8lc_8uoefp")
+UC_CATALOG = os.environ.get("UC_CATALOG", "")
 UC_SCHEMA = os.environ.get("UC_SCHEMA", "ocr_financeiro")
 
 # Tabelas
@@ -60,8 +59,8 @@ FEWSHOT_JOB_ID = int(os.environ.get("FEWSHOT_JOB_ID", "0"))
 # ---------------------------------------------------------------------------
 # Warehouses
 # ---------------------------------------------------------------------------
-WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "970182bc1a3cc5a0")
-SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "970182bc1a3cc5a0")
+WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "")
+SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "")
 
 
 # ---------------------------------------------------------------------------

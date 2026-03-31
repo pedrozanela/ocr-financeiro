@@ -17,7 +17,7 @@ import os
 from collections import defaultdict
 
 # Parametros (injetados via DABs job ou widgets manuais)
-dbutils.widgets.text("catalog", "catalog_nqc8lc_8uoefp")
+dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("secret_scope", "ocr-financeiro")
 dbutils.widgets.text("secret_key", "pat-servico")

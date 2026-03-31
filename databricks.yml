@@ -16,13 +16,13 @@ bundle:
 
 variables:
   catalog:
-    default: catalog_nqc8lc_8uoefp
+    description: "Unity Catalog catalog name"
   schema:
     default: ocr_financeiro
   warehouse_id:
-    default: "970182bc1a3cc5a0"
+    description: "SQL Warehouse ID (databricks warehouses list)"
   serverless_warehouse_id:
-    default: "970182bc1a3cc5a0"
+    description: "Serverless Warehouse ID (pode ser o mesmo)"
   secret_scope:
     default: "ocr-financeiro"
   secret_key:
@@ -37,11 +37,8 @@ workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
 
 targets:
-  azfevm:
-    default: true
-    workspace:
-      profile: azfevm
   fevm:
+    default: true
     workspace:
       profile: fevm
     variables:
@@ -49,6 +46,13 @@ targets:
       warehouse_id: "2c3975c5e258e46b"
       serverless_warehouse_id: "95673eae327f2ace"
       node_type_id: "i3.xlarge"
+  azfevm:
+    workspace:
+      profile: azfevm
+    variables:
+      catalog: catalog_nqc8lc_8uoefp
+      warehouse_id: "970182bc1a3cc5a0"
+      serverless_warehouse_id: "970182bc1a3cc5a0"
 
 resources:
   jobs:

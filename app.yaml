@@ -19,14 +19,15 @@ resources:
       permission: READ
 
 env:
+  # ---- EDITAR PARA CADA AMBIENTE ----
   # Warehouses
   - name: WAREHOUSE_ID
-    value: "970182bc1a3cc5a0"
+    value: ""                         # databricks warehouses list
   - name: SERVERLESS_WAREHOUSE_ID
-    value: "970182bc1a3cc5a0"
+    value: ""                         # pode ser o mesmo
   # Unity Catalog
   - name: UC_CATALOG
-    value: "catalog_nqc8lc_8uoefp"
+    value: ""                         # ex: meu_catalogo
   - name: UC_SCHEMA
     value: "ocr_financeiro"
   # Serving Endpoint
@@ -37,6 +38,6 @@ env:
     value: "ocr-financeiro"
   - name: SECRET_KEY
     value: "pat-servico"
-  # Jobs
+  # Jobs (atualizar apos primeiro deploy)
   - name: FEWSHOT_JOB_ID
     value: "0"
