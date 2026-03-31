@@ -157,9 +157,11 @@ class TechFinExtractorAgent(PythonModel):
     def load_context(self, context):
         from openai import OpenAI
 
-        # Auth: prefer DATABRICKS_TOKEN env var (injected via endpoint secrets),
-        # fall back to WorkspaceClient SDK for local dev
-        token = os.environ.get("DATABRICKS_TOKEN")
+        # Auth: use OCR_PAT env var (injected via endpoint secrets as a dedicated PAT
+        # for Foundation Model API calls), fall back to DATABRICKS_TOKEN or WorkspaceClient.
+        # Note: DATABRICKS_TOKEN is also set by the platform to the endpoint's own
+        # service credential, which may NOT have FMAPI access. Use OCR_PAT to avoid collision.
+        token = os.environ.get("OCR_PAT") or os.environ.get("DATABRICKS_TOKEN")
         host  = os.environ.get("DATABRICKS_HOST")
         if not token:
             try:
@@ -175,7 +177,7 @@ class TechFinExtractorAgent(PythonModel):
                 w = WorkspaceClient()
                 host = w.config.host
             except Exception:
-                host = "https://fevm-cedip-fevm-aws-classic-stable.cloud.databricks.com"
+                host = os.environ.get("DATABRICKS_SERVING_HOST", "https://localhost")
 
         if not host.startswith("http"):
             host = f"https://{host}"

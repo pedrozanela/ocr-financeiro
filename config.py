@@ -12,14 +12,14 @@ import os
 # ---------------------------------------------------------------------------
 # Databricks Workspace
 # ---------------------------------------------------------------------------
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://fevm-cedip-fevm-aws-classic-stable.cloud.databricks.com")
-DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "fevm")
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://adb-7405613524140009.9.azuredatabricks.net")
+DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "azfevm")
 IS_DATABRICKS_APP = bool(os.environ.get("DATABRICKS_APP_NAME"))
 
 # ---------------------------------------------------------------------------
 # Unity Catalog
 # ---------------------------------------------------------------------------
-UC_CATALOG = os.environ.get("UC_CATALOG", "cedip_fevm_aws_classic_stable_catalog")
+UC_CATALOG = os.environ.get("UC_CATALOG", "catalog_nqc8lc_8uoefp")
 UC_SCHEMA = os.environ.get("UC_SCHEMA", "ocr_financeiro")
 
 # Tabelas
@@ -50,18 +50,18 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "pat-servico")
 # ---------------------------------------------------------------------------
 # MLflow
 # ---------------------------------------------------------------------------
-MLFLOW_EXPERIMENT_ID = os.environ.get("MLFLOW_EXPERIMENT_ID", "106740214401905")
+MLFLOW_EXPERIMENT_ID = os.environ.get("MLFLOW_EXPERIMENT_ID", "")
 
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
-FEWSHOT_JOB_ID = int(os.environ.get("FEWSHOT_JOB_ID", "220863263287540"))
+FEWSHOT_JOB_ID = int(os.environ.get("FEWSHOT_JOB_ID", "0"))
 
 # ---------------------------------------------------------------------------
 # Warehouses
 # ---------------------------------------------------------------------------
-WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "2c3975c5e258e46b")
-SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "95673eae327f2ace")
+WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "970182bc1a3cc5a0")
+SERVERLESS_WAREHOUSE_ID = os.environ.get("SERVERLESS_WAREHOUSE_ID", "970182bc1a3cc5a0")
 
 
 # ---------------------------------------------------------------------------

@@ -16,28 +16,39 @@ bundle:
 
 variables:
   catalog:
-    default: cedip_fevm_aws_classic_stable_catalog
+    default: catalog_nqc8lc_8uoefp
   schema:
     default: ocr_financeiro
   warehouse_id:
-    default: "2c3975c5e258e46b"
+    default: "970182bc1a3cc5a0"
   serverless_warehouse_id:
-    default: "95673eae327f2ace"
+    default: "970182bc1a3cc5a0"
   secret_scope:
     default: "ocr-financeiro"
   secret_key:
     default: "pat-servico"
   endpoint_name:
     default: "extrator-financeiro"
+  node_type_id:
+    description: "Cluster node type (AWS: i3.xlarge, Azure: Standard_DS3_v2)"
+    default: "Standard_DS3_v2"
 
 workspace:
-  root_path: /Workspace/Users/carlos.dip@databricks.com/.bundle/ocr-financeiro
+  root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
 
 targets:
-  fevm:
+  azfevm:
     default: true
     workspace:
+      profile: azfevm
+  fevm:
+    workspace:
       profile: fevm
+    variables:
+      catalog: cedip_fevm_aws_classic_stable_catalog
+      warehouse_id: "2c3975c5e258e46b"
+      serverless_warehouse_id: "95673eae327f2ace"
+      node_type_id: "i3.xlarge"
 
 resources:
   jobs:
@@ -53,7 +64,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"
@@ -77,7 +88,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"
@@ -102,7 +113,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"
@@ -125,7 +136,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"
@@ -151,7 +162,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"
@@ -172,7 +183,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"
@@ -197,7 +208,7 @@ resources:
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
+            node_type_id: ${var.node_type_id}
             num_workers: 0
             spark_conf:
               spark.master: "local[*]"

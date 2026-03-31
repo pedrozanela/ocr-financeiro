@@ -21,12 +21,12 @@ resources:
 env:
   # Warehouses
   - name: WAREHOUSE_ID
-    value: "2c3975c5e258e46b"
+    value: "970182bc1a3cc5a0"
   - name: SERVERLESS_WAREHOUSE_ID
-    value: "95673eae327f2ace"
+    value: "970182bc1a3cc5a0"
   # Unity Catalog
   - name: UC_CATALOG
-    value: "cedip_fevm_aws_classic_stable_catalog"
+    value: "catalog_nqc8lc_8uoefp"
   - name: UC_SCHEMA
     value: "ocr_financeiro"
   # Serving Endpoint
@@ -39,4 +39,4 @@ env:
     value: "pat-servico"
   # Jobs
   - name: FEWSHOT_JOB_ID
-    value: "220863263287540"
+    value: "0"

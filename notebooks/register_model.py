@@ -17,7 +17,7 @@ import mlflow
 from mlflow.models.signature import ModelSignature
 from mlflow.types.schema import Schema, ColSpec
 
-dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
+dbutils.widgets.text("catalog", "catalog_nqc8lc_8uoefp")
 dbutils.widgets.text("schema", "ocr_financeiro")
 
 catalog = dbutils.widgets.get("catalog")
@@ -29,9 +29,13 @@ mlflow.set_registry_uri("databricks-uc")
 # Resolve workspace path from notebook location
 try:
     _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().getOrElse(None)
-    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else "/Workspace/Users/carlos.dip@databricks.com/.bundle/ocr-financeiro/files"
+    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else None
 except Exception:
-    WORKSPACE_PATH = "/Workspace/Users/carlos.dip@databricks.com/.bundle/ocr-financeiro/files"
+    WORKSPACE_PATH = None
+
+if not WORKSPACE_PATH:
+    _user = spark.sql("SELECT current_user()").collect()[0][0]
+    WORKSPACE_PATH = f"/Workspace/Users/{_user}/.bundle/ocr-financeiro/files"
 
 print(f"Workspace path: {WORKSPACE_PATH}")
 print(f"Model name: {UC_MODEL_NAME}")

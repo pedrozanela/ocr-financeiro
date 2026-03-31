@@ -17,7 +17,7 @@ import os
 from collections import defaultdict
 
 # Parametros (injetados via DABs job ou widgets manuais)
-dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
+dbutils.widgets.text("catalog", "catalog_nqc8lc_8uoefp")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("secret_scope", "ocr-financeiro")
 dbutils.widgets.text("secret_key", "pat-servico")
@@ -31,9 +31,12 @@ UC_MODEL_NAME = f"{catalog}.{schema}.extrator_financeiro"
 ENDPOINT_NAME = f"extrator-financeiro"
 try:
     _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().getOrElse(None)
-    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else "/Workspace/Users/carlos.dip@databricks.com/ocr-financeiro"
+    WORKSPACE_PATH = "/Workspace" + _nb_path.rsplit("/", 2)[0] if _nb_path else None
 except Exception:
-    WORKSPACE_PATH = "/Workspace/Users/carlos.dip@databricks.com/ocr-financeiro"
+    WORKSPACE_PATH = None
+if not WORKSPACE_PATH:
+    _ws_user = spark.sql("SELECT current_user()").collect()[0][0]
+    WORKSPACE_PATH = f"/Workspace/Users/{_ws_user}/.bundle/ocr-financeiro/files"
 MAX_EXAMPLES = 20
 
 # COMMAND ----------

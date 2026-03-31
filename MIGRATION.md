@@ -85,6 +85,10 @@ env:
 
 > **Nota**: `MLFLOW_EXPERIMENT_ID` e `FEWSHOT_JOB_ID` serao atualizados nos passos seguintes.
 
+> **Azure vs AWS**: O `databricks.yml` usa a variavel `node_type_id` para o tipo de instancia
+> dos clusters. O default e `Standard_DS3_v2` (Azure). Para AWS, use `i3.xlarge`.
+> O target `fevm` no bundle ja faz esse override automaticamente.
+
 ## 2. Build do frontend
 
 ```bash
@@ -181,7 +185,8 @@ cat > /tmp/endpoint.json << 'EOF'
       "workload_size": "Small",
       "scale_to_zero_enabled": true,
       "environment_vars": {
-        "DATABRICKS_TOKEN": "{{secrets/ocr-financeiro/pat-servico}}"
+        "OCR_PAT": "{{secrets/ocr-financeiro/pat-servico}}",
+        "DATABRICKS_HOST": "https://SEU-WORKSPACE.cloud.databricks.com"
       }
     }]
   }
@@ -197,9 +202,11 @@ Aguardar ate READY (~10-15min):
 databricks serving-endpoints get extrator-financeiro --profile MEU_PROFILE | grep ready
 ```
 
-> **Nota sobre `DATABRICKS_TOKEN`**: O modelo usa este env var para chamar a Foundation Model API
-> (Claude Sonnet). Se o valor do secret for invalido, o endpoint retorna erro 403 nas chamadas.
-> O modelo prioriza `DATABRICKS_TOKEN` sobre `WorkspaceClient()` automaticamente.
+> **IMPORTANTE — `OCR_PAT` e `DATABRICKS_HOST`**:
+> - Use `OCR_PAT` (nao `DATABRICKS_TOKEN`) para injetar o PAT. A plataforma tambem define
+>   `DATABRICKS_TOKEN` com a credencial do endpoint, que pode nao ter acesso a FMAPI.
+> - `DATABRICKS_HOST` e obrigatorio — sem ele, o modelo nao sabe para qual workspace direcionar
+>   as chamadas FMAPI. Use a URL completa com `https://`.
 
 ## 8. Upload de PDFs
 
@@ -331,8 +338,14 @@ Abrir a URL da app no navegador e usar o botao "Upload" — a app faz tudo autom
 ### Endpoint retorna 403 "Invalid access token"
 O modelo nao consegue chamar a Foundation Model API. Verificar:
 1. O PAT no secret scope esta valido? Testar com `curl` (passo 3).
-2. O endpoint tem `DATABRICKS_TOKEN: {{secrets/ocr-financeiro/pat-servico}}`?
-3. Se atualizou o secret, force um restart: atualize a versao do modelo no endpoint config.
+2. O endpoint usa `OCR_PAT` (nao `DATABRICKS_TOKEN`)? A plataforma injeta `DATABRICKS_TOKEN`
+   com a credencial do endpoint, que pode nao ter acesso FMAPI. Usar `OCR_PAT` evita colisao.
+3. O endpoint tem `DATABRICKS_HOST` definido? Sem ele, o modelo nao sabe o host para FMAPI.
+4. Se atualizou o secret, force um restart: atualize a versao do modelo no endpoint config.
+
+### Endpoint retorna "Connection error"
+O modelo nao consegue resolver o host do workspace. Adicionar `DATABRICKS_HOST` nas
+env vars do endpoint com a URL completa (ex: `https://adb-XXX.Y.azuredatabricks.net`).
 
 ### `ai_parse_document` falha no job `reprocess_all`
 Esta funcao so roda em Serverless SQL Warehouse, nao em clusters comuns.

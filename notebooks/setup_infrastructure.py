@@ -7,7 +7,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "cedip_fevm_aws_classic_stable_catalog")
+dbutils.widgets.text("catalog", "catalog_nqc8lc_8uoefp")
 dbutils.widgets.text("schema", "ocr_financeiro")
 
 catalog = dbutils.widgets.get("catalog")
