@@ -22,14 +22,14 @@ env:
   # ---- EDITAR PARA CADA AMBIENTE ----
   # Warehouses
   - name: WAREHOUSE_ID
-    value: ""                         # databricks warehouses list
+    value: "2c3975c5e258e46b"
   - name: SERVERLESS_WAREHOUSE_ID
-    value: ""                         # pode ser o mesmo
+    value: "95673eae327f2ace"
   # Unity Catalog
   - name: UC_CATALOG
-    value: ""                         # ex: meu_catalogo
+    value: "cedip_fevm_aws_classic_stable_catalog"
   - name: UC_SCHEMA
-    value: "ocr_financeiro"
+    value: "ocr_financeiro_v2"
   # Serving Endpoint
   - name: OCR_ENDPOINT
     value: "extrator-financeiro"

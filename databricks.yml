@@ -43,6 +43,7 @@ targets:
       profile: fevm
     variables:
       catalog: cedip_fevm_aws_classic_stable_catalog
+      schema: ocr_financeiro_v2
       warehouse_id: "2c3975c5e258e46b"
       serverless_warehouse_id: "95673eae327f2ace"
       node_type_id: "i3.xlarge"
