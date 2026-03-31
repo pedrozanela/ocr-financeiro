@@ -32,13 +32,12 @@ INSTRUCTIONS = (
     "* Substitua qualquer valor null, vazio ou não informado por zero.\n"
     "* Formate todos os números para exibir exatamente 2 casas decimais, usando ponto como separador, "
     "mesmo que o valor seja inteiro ou zero (ex: 834988.00, 0.00, 15.50).\n"
-    "* Preencha o objeto `fontes` no JSON de saída: para cada campo extraído, indique qual texto exato do PDF "
-    "originou o valor. Use o caminho do campo como chave (ex: 'ativo_circulante.impostos_a_recuperar') "
-    "e como valor descreva brevemente: o(s) nome(s) da(s) linha(s) do documento, os valores individuais "
-    "e a operação realizada (ex: soma, leitura direta). "
-    "Exemplo: 'Impostos a recuperar (2.411) + IRPJ e CSLL a compensar (4.596) = 7.007 (escala: milhares)'. "
-    "Se o valor foi lido diretamente de uma única linha, indique apenas o nome da linha e o valor. "
-    "Inclua fontes apenas para campos com valor diferente de zero.\n\n"
+    "* Preencha o objeto `fontes` no JSON de saída: para cada campo com valor diferente de zero, indique "
+    "a(s) linha(s) do documento que originaram o valor. Use o caminho do campo como chave "
+    "(ex: 'ativo_circulante.impostos_a_recuperar') e como valor uma descrição CURTA (máx. 80 caracteres): "
+    "apenas o nome da conta principal e o valor. Se houver soma de múltiplas linhas, liste só os nomes "
+    "sem os valores individuais (ex: 'Caixa + Bancos CC + Bancos investimento'). "
+    "NÃO inclua cálculos detalhados, códigos contábeis ou valores parciais nas fontes.\n\n"
 )
 
 JUDGE_SYSTEM_PROMPT = """\
@@ -354,7 +353,17 @@ class TechFinExtractorAgent(PythonModel):
             raw = response.choices[0].message.content.strip()
             finish_reason = getattr(response.choices[0], "finish_reason", None)
 
-            if raw.startswith("```"):
+            # Always search for a fenced ```json block first (model may prepend reasoning text)
+            import re as _re
+            _fenced = _re.search(r"```json\s*(.*?)\s*```", raw, _re.DOTALL)
+            if _fenced:
+                raw = _fenced.group(1).strip()
+            elif _re.search(r"```json", raw):
+                # Incomplete fenced block (truncated output — no closing ```)
+                _fenced_open = _re.search(r"```json\s*(.*)", raw, _re.DOTALL)
+                if _fenced_open:
+                    raw = _fenced_open.group(1).strip()
+            elif raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]

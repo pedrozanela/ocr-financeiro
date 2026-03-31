@@ -2,7 +2,7 @@
   {
     "id": 1,
     "titulo": "Direito de Uso / Arrendamento (IFRS 16) → Imobilizado",
-    "regra": "Ativos de direito de uso (Right-of-use assets) e arrendamento mercantil devem ser classificados em `ativo_permanente.imobilizado`, NUNCA em `ativo_permanente.intangivel_diferido`. No passivo, obrigações de arrendamento circulante → `passivo_circulante.outros_passivos_circulante`; obrigações de arrendamento não-circulante → `passivo_nao_circulante.outros_passivos_nao_circulantes`."
+    "regra": "Ativos de direito de uso (Right-of-use assets) e arrendamento mercantil devem ser classificados em `ativo_permanente.imobilizado`, NUNCA em `ativo_permanente.intangivel_diferido`. No passivo: obrigações de arrendamento circulante → `passivo_circulante.outros_passivos_circulante` EXCLUSIVAMENTE; obrigações de arrendamento não-circulante → `passivo_nao_circulante.outros_passivos_nao_circulantes`. PROIBIDO: arrendamento mercantil CP NÃO deve ir para `passivo_circulante.financiamentos_com_instituicoes_de_credito` nem para `passivo_circulante.outros_passivos_financeiros`. O campo `passivo_circulante.outros_passivos_financeiros` deve permanecer ZERO em documentos com IFRS 16."
   },
   {
     "id": 2,

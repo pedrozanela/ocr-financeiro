@@ -16,6 +16,7 @@ dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("endpoint", "extrator-financeiro")
 dbutils.widgets.text("secret_scope", "ocr-financeiro")
 dbutils.widgets.text("secret_key", "pat-servico")
+dbutils.widgets.text("filter_docs", "")  # comma-separated doc names to reprocess; empty = all
 
 _cat = dbutils.widgets.get("catalog")
 _sch = dbutils.widgets.get("schema")
@@ -40,7 +41,13 @@ HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json
 
 # COMMAND ----------
 
-rows = spark.sql(f"SELECT document_name, document_text FROM {SOURCE_TABLE} ORDER BY document_name").collect()
+_filter_docs = dbutils.widgets.get("filter_docs").strip()
+if _filter_docs:
+    _names = [n.strip() for n in _filter_docs.split(",") if n.strip()]
+    _in_clause = ", ".join(f"'{n}'" for n in _names)
+    rows = spark.sql(f"SELECT document_name, document_text FROM {SOURCE_TABLE} WHERE document_name IN ({_in_clause}) ORDER BY document_name").collect()
+else:
+    rows = spark.sql(f"SELECT document_name, document_text FROM {SOURCE_TABLE} ORDER BY document_name").collect()
 print(f"Total de documentos: {len(rows)}")
 for r in rows:
     print(f"  • {r['document_name']}  ({len(r['document_text'] or '')} chars)")
@@ -137,7 +144,7 @@ def save_result(pdf_name: str, results):
                 moeda              = '{moe}',
                 escala_valores     = '{escv}',
                 processado_em      = CURRENT_TIMESTAMP(),
-                modelo_versao      = '{ENDPOINT_NAME}'
+                modelo_versao      = '{OCR_ENDPOINT}'
             WHEN NOT MATCHED THEN INSERT
                 (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
                  token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
@@ -145,7 +152,7 @@ def save_result(pdf_name: str, results):
             VALUES
                 ('{doc}', '{te}', '{per}', '{ej}', '{aj}',
                  '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
-                 CURRENT_TIMESTAMP(), '{ENDPOINT_NAME}')
+                 CURRENT_TIMESTAMP(), '{OCR_ENDPOINT}')
         """)
 
 # COMMAND ----------
@@ -156,7 +163,7 @@ def save_result(pdf_name: str, results):
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-MAX_WORKERS = 2
+MAX_WORKERS = 4
 print_lock = threading.Lock()
 
 def process_one(pdf_name: str, text: str) -> dict:
@@ -278,3 +285,45 @@ if hard_errors:
         print(f"  ✗ {n}: {e[:120]}")
     if len(hard_errors) > len(rows) // 2:
         raise Exception(f"Mais da metade falhou ({len(hard_errors)}/{len(rows)}): {[n for n, _ in hard_errors]}")
+
+# COMMAND ----------
+# MAGIC %md ## 5. Sincronizar resultados_final
+
+# COMMAND ----------
+
+FINAL_TABLE = f"{_cat}.{_sch}.resultados_final"
+
+# Insert records not yet in resultados_final (docs without any human correction)
+# Update records that were last written by the model (no user correction applied)
+spark.sql(f"""
+    MERGE INTO {FINAL_TABLE} AS t
+    USING (
+        SELECT document_name, tipo_entidade, periodo, extracted_json,
+               razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores
+        FROM {RESULTS_TABLE}
+        WHERE document_name IN ({', '.join(f"'{n}'" for n in successes)})
+    ) AS s
+    ON  t.document_name = s.document_name
+    AND COALESCE(t.tipo_entidade, '') = COALESCE(s.tipo_entidade, '')
+    AND COALESCE(t.periodo, '')       = COALESCE(s.periodo, '')
+    WHEN MATCHED AND COALESCE(t.atualizado_por, 'model') = 'model' THEN UPDATE SET
+        extracted_json     = s.extracted_json,
+        razao_social       = s.razao_social,
+        cnpj               = s.cnpj,
+        tipo_demonstrativo = s.tipo_demonstrativo,
+        moeda              = s.moeda,
+        escala_valores     = s.escala_valores,
+        atualizado_em      = CURRENT_TIMESTAMP(),
+        atualizado_por     = 'model'
+    WHEN NOT MATCHED THEN INSERT
+        (document_name, tipo_entidade, periodo, extracted_json,
+         razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+         atualizado_em, atualizado_por)
+    VALUES
+        (s.document_name, s.tipo_entidade, s.periodo, s.extracted_json,
+         s.razao_social, s.cnpj, s.tipo_demonstrativo, s.moeda, s.escala_valores,
+         CURRENT_TIMESTAMP(), 'model')
+""")
+
+final_count = spark.sql(f"SELECT COUNT(*) AS n FROM {FINAL_TABLE}").collect()[0]["n"]
+print(f"✓ resultados_final sincronizado: {final_count} registro(s)")

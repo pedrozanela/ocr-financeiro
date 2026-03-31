@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "campo": "passivo_circulante.outros_passivos_circulante",
+    "frequencia": 1,
+    "fonte_doc": "Arrendamento mercantil 452.654 | Receita diferida 152.910 | Outros passivos circulantes 1.750.426",
+    "valor_errado": "2355246 (1.750.426 + 452.654 + 152.910 - 744 de ajuste indevido)",
+    "valor_correto": "2355990 (1.750.426 + 452.654 + 152.910, sem subtração)",
+    "explicacao": "Ao mover arrendamento mercantil CP e receita diferida para outros_passivos_circulante (conforme Regra 1), NÃO subtraia nenhum valor de ajuste. Some exatamente as linhas do documento: base + arrendamento CP + receita diferida. Não há double-counting porque cada linha aparece uma única vez no balanço."
+  }
+]

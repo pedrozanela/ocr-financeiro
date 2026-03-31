@@ -545,7 +545,6 @@
       "Títulos descontados",
       "(-) encargos a apropriar",
       "(-) encargos financeiros a apropriar",
-      "Arrendamento mercantil",
       "Bancos conta empréstimo",
       "Bancos conta empréstimos",
       "Bancos conta financiamento",
@@ -681,7 +680,10 @@
       "Adiantamento de clientes em garantia financeira",
       "Adiantamento de clientes",
       "Adiantamentos de clientes",
-      "Adiantamentos recebidos."
+      "Adiantamentos recebidos.",
+      "Parceiros e outros depósitos",
+      "Depósitos de parceiros",
+      "Outros depósitos de clientes"
     ]
   },
   "passivo_circulante.conta_corrente_socios_coligadas_controladas": {
@@ -871,7 +873,6 @@
       "EMPRESTIMOS CAIXA ECONOMICA FEDERAL",
       "(-) encargos a apropriar",
       "(-) encargos financeiros a apropriar",
-      "Arrendamento mercantil",
       "Bancos conta empréstimo",
       "Bancos conta empréstimos",
       "Bancos conta financiamento",
