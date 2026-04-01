@@ -58,8 +58,6 @@ targets:
       catalog: SEU_CATALOGO
       warehouse_id: "SEU_WAREHOUSE_ID"
       serverless_warehouse_id: "SEU_WAREHOUSE_ID"
-      node_type_id: "i3.xlarge"             # AWS
-      # node_type_id: "Standard_DS3_v2"     # Azure
 ```
 
 > **Dica**: Para encontrar o Warehouse ID, va em **SQL Warehouses** no sidebar,
@@ -217,7 +215,7 @@ A app faz tudo automaticamente (ai_parse_document + endpoint OCR + salva resulta
 
 ```
 [ ] Repo clonado via Git Folders
-[ ] databricks.yml: target configurado (catalog, warehouse IDs, node_type_id)
+[ ] databricks.yml: target configurado (catalog, warehouse IDs)
 [ ] app.yaml: env vars atualizadas
 [ ] Bundle deployado via UI
 [ ] App iniciada e RUNNING
@@ -252,8 +250,6 @@ Requer Serverless SQL Warehouse. Verificar que o warehouse selecionado e Serverl
 Conflito de nome com app deletada recentemente. Editar o `name` em
 `databricks.yml` → `resources.apps.ocr_financeiro_app.name`.
 
-### Azure vs AWS: cluster falha ao iniciar
-Verificar o `node_type_id` no target: AWS = `i3.xlarge`, Azure = `Standard_DS3_v2`.
 
 ### Nao vejo o icone de Deployments no databricks.yml
 Abrir um terminal Web no workspace e rodar `databricks bundle deploy`.

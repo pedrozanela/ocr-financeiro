@@ -2,12 +2,11 @@
 # OCR Financeiro — Databricks Asset Bundle
 #
 # Para deploy em novo ambiente:
-#   1. Atualizar os defaults das variaveis abaixo (catalog, warehouse IDs)
-#   2. Atualizar workspace.root_path com seu email
-#   3. Adicionar/editar o target com seu profile
-#   4. Rodar: databricks bundle validate --target <target>
-#   5. Rodar: databricks bundle deploy --target <target>
+#   1. Adicionar/editar o target com seu profile, catalog e warehouse IDs
+#   2. Atualizar app.yaml com os mesmos valores
+#   3. Deploy: databricks bundle deploy --target <target>
 #
+# Todos os jobs usam Serverless compute (sem necessidade de configurar clusters).
 # Guia completo: MIGRATION.md
 # =============================================================================
 
@@ -20,21 +19,17 @@ variables:
   schema:
     default: ocr_financeiro
   warehouse_id:
-    description: "SQL Warehouse ID (databricks warehouses list)"
+    description: "SQL Warehouse ID"
   serverless_warehouse_id:
     description: "Serverless Warehouse ID (pode ser o mesmo)"
   endpoint_name:
     default: "extrator-financeiro"
-  node_type_id:
-    description: "Cluster node type (AWS: i3.xlarge, Azure: Standard_DS3_v2)"
-    default: "Standard_DS3_v2"
 
 workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
 
 targets:
   fevm:
-    default: true
     workspace:
       profile: fevm
     variables:
@@ -42,12 +37,13 @@ targets:
       schema: ocr_financeiro_v3
       warehouse_id: "2c3975c5e258e46b"
       serverless_warehouse_id: "95673eae327f2ace"
-      node_type_id: "i3.xlarge"
   azfevm:
+    default: true
     workspace:
       profile: azfevm
     variables:
       catalog: catalog_nqc8lc_8uoefp
+      schema: ocr_financeiro
       warehouse_id: "970182bc1a3cc5a0"
       serverless_warehouse_id: "970182bc1a3cc5a0"
 
@@ -63,16 +59,11 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
 
     run_llm_extraction:
       name: "ocr-financeiro-run-llm"
@@ -85,16 +76,11 @@ resources:
               schema: ${var.schema}
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
 
     reprocess_all:
       name: "ocr-financeiro-reprocess-all"
@@ -108,16 +94,11 @@ resources:
               volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
 
     update_fewshot_weekly:
       name: "ocr-financeiro-atualizar-modelo"
@@ -129,16 +110,11 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
       schedule:
         quartz_cron_expression: "0 0 6 ? * MON"
         timezone_id: "America/Sao_Paulo"
@@ -155,16 +131,11 @@ resources:
               schema: ${var.schema}
               sp_client_id: ""
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
 
     register_model:
       name: "ocr-financeiro-register-model"
@@ -177,21 +148,14 @@ resources:
               schema: ${var.schema}
               endpoint_name: ${var.endpoint_name}
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
 
     batch_job:
       name: "ocr-financeiro-batch-job"
-      # NOTE: This job is for legacy batch processing from the volume.
-      # For normal use, upload PDFs through the app UI instead.
       tasks:
         - task_key: batch
           notebook_task:
@@ -202,16 +166,11 @@ resources:
               volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: ${var.node_type_id}
-            num_workers: 0
-            spark_conf:
-              spark.master: "local[*]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
-            data_security_mode: SINGLE_USER
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
 
   apps:
     ocr_financeiro_app:
