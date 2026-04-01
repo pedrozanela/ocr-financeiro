@@ -58,6 +58,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              sp_client_id: ""
             source: WORKSPACE
           environment_key: default
       performance_target: STANDARD

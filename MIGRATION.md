@@ -17,19 +17,16 @@ O notebook `register_model` registra o modelo e cria o serving endpoint.
 Nao e necessario criar PATs, secret scopes, ou Service Principals manualmente.
 A app e o endpoint usam suas identidades nativas (auto-gerenciadas pela plataforma).
 
-**Tempo total estimado: ~35min** (a maior parte e espera por provisionamento).
+**Tempo total estimado: ~30min** (a maior parte e espera por provisionamento).
 
 ```
 1. Clonar repo via Git Folders
 2. Configurar variaveis (databricks.yml, app.yaml)
-3. Deploy do bundle (via UI)
-4. Iniciar a app
-5. Rodar job: setup_infrastructure          (~5min)
-6. Rodar job: register_model                (~15min — modelo + endpoint)
-7. Upload de PDFs (via UI Catalog)
-8. Conceder permissoes (via job + UI)
-9. Ingerir texto + extrair (SQL Editor + job)
-10. Verificar (abrir a app)
+3. Deploy do bundle (cria jobs + app)
+4. Iniciar a app e copiar o SP
+5. Setup infraestrutura + permissoes        (~5min)
+6. Registrar modelo + criar endpoint        (~15min)
+7. Upload de PDFs e verificar               (via app)
 ```
 
 ## 1. Clonar o repositorio via Git Folders
@@ -94,25 +91,46 @@ Isso sincroniza os arquivos, cria 7 jobs e a app automaticamente.
 > databricks bundle deploy --target meu_target
 > ```
 
-## 4. Iniciar a App
+## 4. Iniciar a App e copiar o SP
 
 O bundle cria a app mas nao a inicia automaticamente.
 
 1. No sidebar, ir em **Apps**
 2. Encontrar **ocr-financeiro**
-3. Clicar em **Start** (ou **Create a deployment** se for a primeira vez)
+3. Copiar o **Service Principal Client ID** do painel de detalhes
+   (gerado automaticamente pelo bundle — sera usado no proximo passo)
+4. Clicar em **Start** (ou **Create a deployment** se for a primeira vez)
    - **Source code path**: `/Workspace/Users/seu_email/.bundle/ocr-financeiro/files`
-4. Aguardar status **Running** (~2-3min)
+5. Aguardar status **Running** (~2-3min)
 
-## 5. Rodar job: Setup da infraestrutura
+## 5. Setup da infraestrutura + permissoes
+
+Este job cria o schema, tabelas e volume, e concede permissoes ao SP da app.
 
 1. No sidebar, ir em **Workflows** (ou **Jobs & Pipelines**)
 2. Encontrar **ocr-financeiro-setup-infrastructure**
-3. Clicar **Run now**
+3. Clicar **Run now with different parameters**
+4. Preencher:
+   - `sp_client_id`: colar o SP Client ID copiado no passo 4
+   - `catalog` e `schema` ja vem preenchidos pelo bundle
+5. Clicar **Run now**
 
-Cria: schema, 4 tabelas e volume. Tempo: ~5-7min.
+O job cria a infraestrutura E concede permissoes (UC + jobs) em uma unica execucao.
 
-## 6. Rodar job: Registrar modelo + criar endpoint
+Tempo: ~5-7min.
+
+Apos o job concluir, conceder 2 permissoes adicionais pela UI:
+
+**Warehouse:**
+
+1. Em **SQL Warehouses** → selecionar o warehouse → aba **Permissions**
+2. Clicar **Grant access** → buscar pelo nome do SP (ex: `app-XXXX ocr-financeiro`)
+3. Selecionar **Can use** → **Add**
+
+> **Nota**: A permissao no serving endpoint sera concedida depois do passo 6
+> (o endpoint ainda nao existe neste momento).
+
+## 6. Registrar modelo + criar endpoint
 
 1. Em **Workflows**, encontrar **ocr-financeiro-register-model**
 2. Clicar **Run now**
@@ -124,94 +142,25 @@ Este job faz tudo automaticamente:
 
 Tempo: ~15min (inclui provisionamento do endpoint).
 
-> **Sobre autenticacao**: O endpoint usa a identidade do proprio sistema (auto-gerenciada
-> pela plataforma). Nao precisa de PAT ou secret scope. O modelo usa `WorkspaceClient()`
-> que resolve as credenciais automaticamente.
-
-## 7. Upload de PDFs
-
-1. No sidebar, ir em **Catalog**
-2. Navegar ate `SEU_CATALOGO` → `ocr_financeiro` → **Volumes** → `documentos_pdf`
-3. Clicar **Upload to this volume**
-4. Arrastar os PDFs ou clicar para selecionar
-
-## 8. Conceder permissoes ao SP da App
-
-O bundle criou a app no passo 3, e o Databricks gerou automaticamente um
-Service Principal (SP) para ela. O SP ja esta visivel na pagina da app.
-
-### 8a. Copiar o SP da app
-
-1. Em **Apps**, clicar no nome da app (**ocr-financeiro**)
-2. No painel de detalhes, copiar o **Service Principal Client ID**
-   (gerado automaticamente no passo 3 quando o bundle criou a app)
-
-### 8b. Permissoes UC (via job)
-
-1. Em **Workflows**, encontrar **ocr-financeiro-grant-permissions**
-2. Clicar **Run now with different parameters**
-3. Preencher os parametros:
-   - `sp_client_id`: colar o SP Client ID
-   - `catalog`: `SEU_CATALOGO`
-   - `schema`: `ocr_financeiro`
-4. Clicar **Run now**
-
-### 8c. Permissoes adicionais (via UI)
-
-**Serving endpoint:**
+Apos o job concluir, conceder permissao no endpoint ao SP da app:
 
 1. Em **Serving** → `extrator-financeiro` → aba **Permissions**
 2. Clicar **Grant access** → buscar pelo nome do SP (ex: `app-XXXX ocr-financeiro`)
 3. Selecionar **Can query** → **Add**
 
-**Warehouse:**
+## 7. Upload de PDFs e verificar
 
-1. Em **SQL Warehouses** → selecionar o warehouse → aba **Permissions**
-2. Clicar **Grant access** → buscar pelo nome do SP da app
-3. Selecionar **Can use** → **Add**
-
-## 9. Ingerir texto e extrair dados
-
-### 9a. Extrair texto — SQL Editor
-
-1. No sidebar, ir em **SQL Editor**
-2. Selecionar o Serverless SQL Warehouse
-3. Executar (substituir nomes):
-
-```sql
-INSERT INTO SEU_CATALOGO.ocr_financeiro.documentos (document_name, document_text, ingested_at)
-SELECT
-    'meu_balanco.pdf',
-    concat_ws('\n\n',
-        transform(
-            try_cast(ai_parse_document(content):document:elements AS ARRAY<VARIANT>),
-            element -> try_cast(element:content AS STRING)
-        )
-    ),
-    current_timestamp()
-FROM read_files(
-    '/Volumes/SEU_CATALOGO/ocr_financeiro/documentos_pdf/meu_balanco.pdf',
-    format => 'binaryFile'
-)
-```
-
-### 9b. Rodar extracao LLM — via job
-
-1. Em **Workflows**, encontrar **ocr-financeiro-run-llm**
-2. Clicar **Run now**
-
-### 9c. Alternativa: via app
-
-Se a app ja esta rodando, basta abrir a URL e usar o botao **Upload**.
-A app faz tudo automaticamente (ai_parse_document + endpoint OCR + salva resultados).
-
-## 10. Verificar
+A app ja esta rodando (passo 4) e com todas as permissoes configuradas.
 
 1. Abrir a URL da app (visivel em **Apps** → **ocr-financeiro**)
-2. Verificar que os documentos aparecem na lista lateral
-3. Navegar pelas abas: Identificacao, Ativo, Passivo, DRE, Fontes, Pontos de Atencao
-4. Testar correcao manual de um campo
-5. Exportar Excel e validar formato
+2. Usar o botao **Upload** para enviar PDFs
+   - A app salva o PDF no volume e dispara o job de processamento automaticamente
+   - O processamento leva alguns minutos por PDF
+3. Apos o processamento, o documento aparece na lista lateral
+4. Navegar pelas abas: Identificacao, Ativo, Passivo, DRE, Fontes, Pontos de Atencao
+
+> **Alternativa manual**: Tambem e possivel fazer upload via **Catalog** → Volume → Upload,
+> e depois rodar o job **ocr-financeiro-batch-job** manualmente em **Workflows**.
 
 ## Checklist
 
@@ -221,14 +170,12 @@ A app faz tudo automaticamente (ai_parse_document + endpoint OCR + salva resulta
 [ ] app.yaml: env vars atualizadas
 [ ] Bundle deployado via UI
 [ ] App iniciada e RUNNING
-[ ] Job setup_infrastructure: sucesso
+[ ] SP da app copiado
+[ ] Job setup_infrastructure rodou com SP (infraestrutura + permissoes UC + jobs)
+[ ] Warehouse: SP tem Can use
 [ ] Job register_model: sucesso (modelo + endpoint READY)
-[ ] PDFs no volume
-[ ] Permissoes do SP da App:
-    [ ] UC: grant_permissions job
-    [ ] Endpoint: Can query
-    [ ] Warehouse: Can use
-[ ] Texto extraido e LLM rodou com sucesso
+[ ] Endpoint: SP tem Can query
+[ ] PDF uploadado via app e processado com sucesso
 [ ] App mostrando dados extraidos
 ```
 
@@ -240,18 +187,18 @@ Se retorna 403, a identidade do endpoint nao tem acesso a Foundation Model API.
 Verificar que o endpoint FMAPI (`databricks-claude-sonnet-4-6`) permite acesso
 de todos os usuarios ou que o sistema de serving tem permissao.
 
-### `ai_parse_document` falha no SQL Editor
-Requer Serverless SQL Warehouse. Verificar que o warehouse selecionado e Serverless.
+### Upload nao dispara o job de processamento
+Verificar que o SP da app tem CAN_MANAGE_RUN nos jobs. Re-rodar o job
+`setup_infrastructure` com o `sp_client_id` preenchido.
 
 ### App retorna lista vazia de documentos
 1. Verificar que `resultados` tem dados: `SELECT COUNT(*) FROM SEU_CATALOGO.ocr_financeiro.resultados`
-2. Re-rodar o job grant_permissions com o SP da app.
+2. Re-rodar o job setup_infrastructure com o SP da app.
 3. Verificar que o warehouse esta ativo e o SP tem Can use.
 
 ### App creation falha ao deployar o bundle
 Conflito de nome com app deletada recentemente. Editar o `name` em
 `databricks.yml` → `resources.apps.ocr_financeiro_app.name`.
-
 
 ### Nao vejo o icone de Deployments no databricks.yml
 Abrir um terminal Web no workspace e rodar `databricks bundle deploy`.
