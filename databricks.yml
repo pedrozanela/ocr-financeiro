@@ -155,6 +155,17 @@ resources:
               endpoint_name: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
+        - task_key: initial_extraction
+          depends_on:
+            - task_key: register
+          notebook_task:
+            notebook_path: ./notebooks/run_llm_from_table.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              endpoint: ${var.endpoint_name}
+            source: WORKSPACE
+          environment_key: default
       performance_target: STANDARD
       environments:
         - environment_key: default
