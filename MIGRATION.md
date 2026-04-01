@@ -137,12 +137,14 @@ Tempo: ~15min (inclui provisionamento do endpoint).
 
 ## 8. Conceder permissoes ao SP da App
 
-Ao criar a app, o Databricks cria um Service Principal (SP) automatico.
+O bundle criou a app no passo 3, e o Databricks gerou automaticamente um
+Service Principal (SP) para ela. O SP ja esta visivel na pagina da app.
 
-### 8a. Encontrar o SP da app
+### 8a. Copiar o SP da app
 
 1. Em **Apps**, clicar no nome da app (**ocr-financeiro**)
 2. No painel de detalhes, copiar o **Service Principal Client ID**
+   (gerado automaticamente no passo 3 quando o bundle criou a app)
 
 ### 8b. Permissoes UC (via job)
 
