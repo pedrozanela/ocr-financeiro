@@ -60,6 +60,7 @@ resources:
               schema: ${var.schema}
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
@@ -77,6 +78,7 @@ resources:
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
@@ -95,6 +97,7 @@ resources:
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
@@ -111,6 +114,7 @@ resources:
               schema: ${var.schema}
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
@@ -132,6 +136,7 @@ resources:
               sp_client_id: ""
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
@@ -149,6 +154,7 @@ resources:
               endpoint_name: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
@@ -167,6 +173,7 @@ resources:
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
+      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
