@@ -1,11 +1,32 @@
 import io
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from ..config import get_client, PDF_VOLUME_PATH, BATCH_JOB_ID
+from ..config import get_client, PDF_VOLUME_PATH
 
 router = APIRouter()
 
 # Track which document triggered which job run
 _runs: dict[str, int] = {}
+
+# Cache the batch job ID (looked up once by name)
+_batch_job_id: int | None = None
+
+
+def _get_batch_job_id(client) -> int:
+    """Find the batch_job ID by name. Cached after first lookup."""
+    global _batch_job_id
+    if _batch_job_id:
+        return _batch_job_id
+    # Try env var first (if set by app.yaml or bundle)
+    import os
+    env_id = os.environ.get("BATCH_JOB_ID", "0")
+    if env_id and env_id != "0":
+        _batch_job_id = int(env_id)
+        return _batch_job_id
+    # Fall back to looking up by name
+    for job in client.jobs.list(name="ocr-financeiro-batch-job"):
+        _batch_job_id = job.job_id
+        return _batch_job_id
+    raise RuntimeError("Job 'ocr-financeiro-batch-job' nao encontrado. Execute o bundle deploy primeiro.")
 
 
 @router.post("/documents/upload")
@@ -25,14 +46,13 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(500, f"Erro ao salvar PDF no volume: {e}")
 
     # 2. Trigger the batch_job to process the new PDF
-    if BATCH_JOB_ID:
-        try:
-            run = client.jobs.run_now(job_id=BATCH_JOB_ID)
-            _runs[document_name] = run.run_id
-        except Exception as e:
-            # Job trigger failed — PDF is saved, user can run job manually
-            return {"document_name": document_name, "status": "uploaded",
-                    "detail": f"PDF salvo no volume. Job nao disparado: {e}"}
+    try:
+        job_id = _get_batch_job_id(client)
+        run = client.jobs.run_now(job_id=job_id)
+        _runs[document_name] = run.run_id
+    except Exception as e:
+        return {"document_name": document_name, "status": "uploaded",
+                "detail": f"PDF salvo no volume. Job nao disparado: {e}"}
 
     return {"document_name": document_name, "status": "processing",
             "run_id": _runs.get(document_name)}

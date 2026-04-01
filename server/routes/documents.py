@@ -64,12 +64,11 @@ def get_document(document_name: str):
 
 @router.post("/documents/{document_name}/reprocess")
 def reprocess_document(document_name: str):
-    from ..config import BATCH_JOB_ID
-    if not BATCH_JOB_ID:
-        raise HTTPException(500, "BATCH_JOB_ID nao configurado.")
+    from .upload import _get_batch_job_id
     client = get_client()
     try:
-        run = client.jobs.run_now(job_id=BATCH_JOB_ID)
+        job_id = _get_batch_job_id(client)
+        run = client.jobs.run_now(job_id=job_id)
         _runs[document_name] = run.run_id
         return {"document_name": document_name, "status": "processing", "run_id": run.run_id}
     except Exception as e:

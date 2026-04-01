@@ -49,7 +49,6 @@ MLFLOW_EXPERIMENT_ID = os.environ.get("MLFLOW_EXPERIMENT_ID", "")
 # Jobs
 # ---------------------------------------------------------------------------
 FEWSHOT_JOB_ID = int(os.environ.get("FEWSHOT_JOB_ID", "0"))
-BATCH_JOB_ID = int(os.environ.get("BATCH_JOB_ID", "0"))
 
 # ---------------------------------------------------------------------------
 # Warehouses
