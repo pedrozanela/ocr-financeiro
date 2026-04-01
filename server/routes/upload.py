@@ -34,15 +34,7 @@ def _extract_text_ai_parse(volume_path: str) -> str:
 
 def _call_ocr_endpoint(text: str, client) -> list:
     """HTTP call with explicit timeout — avoids SDK hang on scale-to-zero cold start."""
-    token = os.environ.get("OCR_PAT")
-    if not token:
-        import base64
-        try:
-            from ..config import SECRET_SCOPE, SECRET_KEY
-            secret = client.secrets.get_secret(scope=SECRET_SCOPE, key=SECRET_KEY)
-            token = base64.b64decode(secret.value).decode()
-        except Exception:
-            token = client.config.token
+    token = client.config.token
     host = client.config.host or DATABRICKS_HOST
     if not host.startswith("http"):
         host = f"https://{host}"

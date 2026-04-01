@@ -14,8 +14,6 @@ import requests
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("endpoint", "extrator-financeiro")
-dbutils.widgets.text("secret_scope", "ocr-financeiro")
-dbutils.widgets.text("secret_key", "pat-servico")
 dbutils.widgets.text("filter_docs", "")  # comma-separated doc names to reprocess; empty = all
 
 _cat = dbutils.widgets.get("catalog")
@@ -23,17 +21,16 @@ _sch = dbutils.widgets.get("schema")
 SOURCE_TABLE    = f"{_cat}.{_sch}.documentos"
 RESULTS_TABLE   = f"{_cat}.{_sch}.resultados"
 OCR_ENDPOINT    = dbutils.widgets.get("endpoint")
-DATABRICKS_HOST = spark.conf.get("spark.databricks.workspaceUrl", "e2-demo-field-eng.cloud.databricks.com")
+DATABRICKS_HOST = spark.conf.get("spark.databricks.workspaceUrl", "")
 if not DATABRICKS_HOST.startswith("http"):
     DATABRICKS_HOST = f"https://{DATABRICKS_HOST}"
-SECRET_SCOPE    = dbutils.widgets.get("secret_scope")
-SECRET_KEY      = dbutils.widgets.get("secret_key")
 ENDPOINT_URL    = f"{DATABRICKS_HOST}/serving-endpoints/{OCR_ENDPOINT}/invocations"
 
 PRICE_INPUT_PER_TOKEN  = 3.00 / 1_000_000
 PRICE_OUTPUT_PER_TOKEN = 15.00 / 1_000_000
 
-TOKEN   = dbutils.secrets.get(SECRET_SCOPE, SECRET_KEY)
+# Auth: use the notebook's context token (no PAT/secrets needed)
+TOKEN   = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().getOrElse(None)
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
 # COMMAND ----------

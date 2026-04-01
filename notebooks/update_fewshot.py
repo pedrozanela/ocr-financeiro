@@ -19,8 +19,6 @@ from collections import defaultdict
 # Parametros (injetados via DABs job ou widgets manuais)
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "ocr_financeiro")
-dbutils.widgets.text("secret_scope", "ocr-financeiro")
-dbutils.widgets.text("secret_key", "pat-servico")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
@@ -285,11 +283,8 @@ config = {
         "name": "techfin-ocr-v4",
         "entity_name": UC_MODEL_NAME,
         "entity_version": str(latest_version),
-        "workload_size": "Large",
-        "scale_to_zero_enabled": False,
-        "environment_vars": {
-            "DATABRICKS_TOKEN": f"{{{{secrets/{dbutils.widgets.get('secret_scope')}/{dbutils.widgets.get('secret_key')}}}}}"
-        }
+        "workload_size": "Small",
+        "scale_to_zero_enabled": True
     }]
 }
 

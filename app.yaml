@@ -1,4 +1,6 @@
 # Databricks App config — atualizar env vars para cada ambiente.
+# Auth: the app's auto-created Service Principal authenticates via WorkspaceClient().
+# No PATs or secret scopes needed.
 # Guia completo: MIGRATION.md
 command:
   - python
@@ -9,14 +11,6 @@ command:
   - "0.0.0.0"
   - --port
   - "8000"
-
-resources:
-  - name: pat-servico
-    description: "PAT do Service Principal para chamar o endpoint OCR"
-    secret:
-      scope: ocr-financeiro
-      key: pat-servico
-      permission: READ
 
 env:
   # ---- EDITAR PARA CADA AMBIENTE ----
@@ -29,15 +23,10 @@ env:
   - name: UC_CATALOG
     value: "cedip_fevm_aws_classic_stable_catalog"
   - name: UC_SCHEMA
-    value: "ocr_financeiro_v2"
+    value: "ocr_financeiro_v3"
   # Serving Endpoint
   - name: OCR_ENDPOINT
     value: "extrator-financeiro"
-  # Secrets
-  - name: SECRET_SCOPE
-    value: "ocr-financeiro"
-  - name: SECRET_KEY
-    value: "pat-servico"
   # Jobs (atualizar apos primeiro deploy)
   - name: FEWSHOT_JOB_ID
     value: "0"

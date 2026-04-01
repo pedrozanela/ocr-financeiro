@@ -23,10 +23,6 @@ variables:
     description: "SQL Warehouse ID (databricks warehouses list)"
   serverless_warehouse_id:
     description: "Serverless Warehouse ID (pode ser o mesmo)"
-  secret_scope:
-    default: "ocr-financeiro"
-  secret_key:
-    default: "pat-servico"
   endpoint_name:
     default: "extrator-financeiro"
   node_type_id:
@@ -43,7 +39,7 @@ targets:
       profile: fevm
     variables:
       catalog: cedip_fevm_aws_classic_stable_catalog
-      schema: ocr_financeiro_v2
+      schema: ocr_financeiro_v3
       warehouse_id: "2c3975c5e258e46b"
       serverless_warehouse_id: "95673eae327f2ace"
       node_type_id: "i3.xlarge"
@@ -88,8 +84,6 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               endpoint: ${var.endpoint_name}
-              secret_scope: ${var.secret_scope}
-              secret_key: ${var.secret_key}
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
@@ -113,8 +107,6 @@ resources:
               schema: ${var.schema}
               volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
               endpoint: ${var.endpoint_name}
-              secret_scope: ${var.secret_scope}
-              secret_key: ${var.secret_key}
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
@@ -136,8 +128,6 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-              secret_scope: ${var.secret_scope}
-              secret_key: ${var.secret_key}
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
@@ -185,6 +175,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              endpoint_name: ${var.endpoint_name}
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
@@ -199,6 +190,8 @@ resources:
 
     batch_job:
       name: "ocr-financeiro-batch-job"
+      # NOTE: This job is for legacy batch processing from the volume.
+      # For normal use, upload PDFs through the app UI instead.
       tasks:
         - task_key: batch
           notebook_task:
@@ -208,8 +201,6 @@ resources:
               schema: ${var.schema}
               volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
               endpoint: ${var.endpoint_name}
-              secret_scope: ${var.secret_scope}
-              secret_key: ${var.secret_key}
             source: WORKSPACE
           new_cluster:
             spark_version: "15.4.x-scala2.12"
@@ -221,3 +212,35 @@ resources:
             custom_tags:
               ResourceClass: SingleNode
             data_security_mode: SINGLE_USER
+
+  apps:
+    ocr_financeiro_app:
+      name: "ocr-financeiro"
+      description: "Extrator de dados financeiros (BP + DRE) com revisao humana"
+      source_code_path: .
+      config:
+        command:
+          - python
+          - -m
+          - uvicorn
+          - "app:app"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "8000"
+        env:
+          - name: WAREHOUSE_ID
+            value: ${var.warehouse_id}
+          - name: SERVERLESS_WAREHOUSE_ID
+            value: ${var.serverless_warehouse_id}
+          - name: UC_CATALOG
+            value: ${var.catalog}
+          - name: UC_SCHEMA
+            value: ${var.schema}
+          - name: OCR_ENDPOINT
+            value: ${var.endpoint_name}
+          - name: FEWSHOT_JOB_ID
+            value: "0"
+      permissions:
+        - level: CAN_MANAGE
+          user_name: ${workspace.current_user.userName}

@@ -41,12 +41,6 @@ OCR_MODEL = os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "databricks-claude-opus-4-6")
 
 # ---------------------------------------------------------------------------
-# Secrets
-# ---------------------------------------------------------------------------
-SECRET_SCOPE = os.environ.get("SECRET_SCOPE", "ocr-financeiro")
-SECRET_KEY = os.environ.get("SECRET_KEY", "pat-servico")
-
-# ---------------------------------------------------------------------------
 # MLflow
 # ---------------------------------------------------------------------------
 MLFLOW_EXPERIMENT_ID = os.environ.get("MLFLOW_EXPERIMENT_ID", "")

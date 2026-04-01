@@ -16,8 +16,6 @@ dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("volume_path", "")
 dbutils.widgets.text("endpoint", "extrator-financeiro")
-dbutils.widgets.text("secret_scope", "ocr-financeiro")
-dbutils.widgets.text("secret_key", "pat-servico")
 
 _cat = dbutils.widgets.get("catalog")
 _sch = dbutils.widgets.get("schema")
@@ -30,7 +28,7 @@ if not DATABRICKS_HOST.startswith("http"):
     DATABRICKS_HOST = f"https://{DATABRICKS_HOST}"
 ENDPOINT_URL    = f"{DATABRICKS_HOST}/serving-endpoints/{OCR_ENDPOINT}/invocations"
 
-TOKEN   = dbutils.secrets.get(dbutils.widgets.get("secret_scope"), dbutils.widgets.get("secret_key"))
+TOKEN   = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().getOrElse(None)
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
 # COMMAND ----------
