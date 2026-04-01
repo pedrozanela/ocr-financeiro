@@ -173,8 +173,8 @@ def save_correction(c: Correction, request: Request):
     execute_update(
         f"""INSERT INTO {CORRECTIONS_TABLE}
             (document_name, tipo_entidade, periodo, campo, valor_extraido, valor_correto,
-             comentario, status, criado_por)
-            VALUES (:name, :te, :per, :campo, :extraido, :correto, :comentario, 'pendente', :user)""",
+             comentario, status, criado_em)
+            VALUES (:name, :te, :per, :campo, :extraido, :correto, :comentario, 'pendente', CURRENT_TIMESTAMP())""",
         [
             {"name": "name",       "value": c.document_name},
             {"name": "te",         "value": te},
@@ -183,7 +183,6 @@ def save_correction(c: Correction, request: Request):
             {"name": "extraido",   "value": c.valor_extraido},
             {"name": "correto",    "value": c.valor_correto},
             {"name": "comentario", "value": c.comentario},
-            {"name": "user",       "value": user},
         ],
     )
 

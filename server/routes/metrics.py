@@ -122,7 +122,7 @@ def get_metrics():
     # Corrections by user (who created + who confirmed)
     by_user = execute_sql(f"""
         SELECT
-            COALESCE(criado_por, 'unknown') AS usuario,
+            COALESCE(confirmado_por, 'unknown') AS usuario,
             COUNT(*) AS total_correcoes,
             SUM(CASE WHEN status = 'confirmado' THEN 1 ELSE 0 END) AS confirmadas,
             CAST(MAX(criado_em) AS STRING) AS ultima_correcao
@@ -134,7 +134,7 @@ def get_metrics():
     # Recent corrections with user detail
     recent = execute_sql(f"""
         SELECT document_name, campo, valor_extraido, valor_correto, comentario,
-               COALESCE(criado_por, 'unknown') AS criado_por,
+               COALESCE(confirmado_por, 'unknown') AS criado_por,
                CAST(criado_em AS STRING) AS criado_em,
                COALESCE(confirmado_por, '') AS confirmado_por,
                CAST(confirmado_em AS STRING) AS confirmado_em,
