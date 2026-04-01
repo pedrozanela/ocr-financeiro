@@ -49,7 +49,7 @@ export default function App() {
       const body = await res.json()
       if (!res.ok) throw new Error(body.detail ?? 'Erro desconhecido')
       const docName = body.document_name
-      for (let i = 0; i < 180; i++) {
+      for (let i = 0; i < 360; i++) {
         await new Promise(r => setTimeout(r, 5000))
         const st = await fetch(`/api/documents/${encodeURIComponent(docName)}/status`).then(r => r.json())
         if (st.status === 'done') {
@@ -60,7 +60,9 @@ export default function App() {
         }
         if (st.status === 'error') throw new Error(st.detail ?? 'Erro ao processar OCR')
       }
-      throw new Error('Timeout: processamento OCR demorou mais de 15 minutos')
+      // Job continues running in background — user can refresh to see results
+      await loadDocs()
+      setView('docs')
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
     } finally {
