@@ -16,17 +16,19 @@ env:
   # ---- EDITAR PARA CADA AMBIENTE ----
   # Warehouses
   - name: WAREHOUSE_ID
-    value: "2c3975c5e258e46b"
+    value: ""
   - name: SERVERLESS_WAREHOUSE_ID
-    value: "95673eae327f2ace"
+    value: ""
   # Unity Catalog
   - name: UC_CATALOG
-    value: "cedip_fevm_aws_classic_stable_catalog"
+    value: ""
   - name: UC_SCHEMA
-    value: "ocr_financeiro_v3"
+    value: "ocr_financeiro"
   # Serving Endpoint
   - name: OCR_ENDPOINT
     value: "extrator-financeiro"
   # Jobs (atualizar apos primeiro deploy)
   - name: FEWSHOT_JOB_ID
+    value: "0"
+  - name: BATCH_JOB_ID
     value: "0"

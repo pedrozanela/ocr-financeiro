@@ -1,8 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from ..db import execute_sql
 from ..config import RESULTS_TABLE, PDF_VOLUME_PATH, get_client
-from .upload import _extract_text_ai_parse, _call_ocr_endpoint, _save_result, _status
+from .upload import _runs
 
 router = APIRouter()
 
@@ -62,30 +62,18 @@ def get_document(document_name: str):
     }
 
 
-def _reprocess_background(document_name: str, volume_path: str):
-    try:
-        _status[document_name] = {"status": "processing", "step": "parsing"}
-        text = _extract_text_ai_parse(volume_path)
-        if not text.strip():
-            _status[document_name] = {"status": "error", "detail": "Não foi possível extrair texto do PDF."}
-            return
-        _status[document_name] = {"status": "processing", "step": "ocr"}
-        client = get_client()
-        results = _call_ocr_endpoint(text, client)
-        _status[document_name] = {"status": "processing", "step": "saving"}
-        _save_result(document_name, results, client)
-        _status[document_name] = {"status": "done", "records": len(results)}
-    except Exception as e:
-        _status[document_name] = {"status": "error", "detail": str(e)}
-
-
 @router.post("/documents/{document_name}/reprocess")
-def reprocess_document(document_name: str, background_tasks: BackgroundTasks):
-    fname = document_name if document_name.endswith(".pdf") else f"{document_name}.pdf"
-    volume_path = f"{PDF_VOLUME_PATH}/{fname}"
-    _status[document_name] = {"status": "processing", "step": "parsing"}
-    background_tasks.add_task(_reprocess_background, document_name, volume_path)
-    return {"document_name": document_name, "status": "processing"}
+def reprocess_document(document_name: str):
+    from ..config import BATCH_JOB_ID
+    if not BATCH_JOB_ID:
+        raise HTTPException(500, "BATCH_JOB_ID nao configurado.")
+    client = get_client()
+    try:
+        run = client.jobs.run_now(job_id=BATCH_JOB_ID)
+        _runs[document_name] = run.run_id
+        return {"document_name": document_name, "status": "processing", "run_id": run.run_id}
+    except Exception as e:
+        raise HTTPException(500, f"Erro ao disparar job: {e}")
 
 
 @router.get("/documents/{document_name}/pdf")
