@@ -16,12 +16,12 @@ env:
   # ---- EDITAR PARA CADA AMBIENTE ----
   # Warehouses
   - name: WAREHOUSE_ID
-    value: ""
+    value: "970182bc1a3cc5a0"
   - name: SERVERLESS_WAREHOUSE_ID
-    value: ""
+    value: "970182bc1a3cc5a0"
   # Unity Catalog
   - name: UC_CATALOG
-    value: ""
+    value: "catalog_nqc8lc_8uoefp"
   - name: UC_SCHEMA
     value: "ocr_financeiro"
   # Serving Endpoint
