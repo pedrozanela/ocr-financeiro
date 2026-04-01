@@ -80,13 +80,9 @@ if os.path.exists(FEWSHOT_FILE):
 
 _user = spark.sql("SELECT current_user()").collect()[0][0]
 _exp_name = f"/Users/{_user}/ocr-financeiro"
-_exp = mlflow.get_experiment_by_name(_exp_name)
-if _exp is None:
-    EXPERIMENT_ID = mlflow.create_experiment(_exp_name)
-    print(f"Experimento criado: {_exp_name} (ID: {EXPERIMENT_ID})")
-else:
-    EXPERIMENT_ID = _exp.experiment_id
-    print(f"Experimento existente: {_exp_name} (ID: {EXPERIMENT_ID})")
+mlflow.set_experiment(_exp_name)
+EXPERIMENT_ID = mlflow.get_experiment_by_name(_exp_name).experiment_id
+print(f"Experimento: {_exp_name} (ID: {EXPERIMENT_ID})")
 
 # COMMAND ----------
 
