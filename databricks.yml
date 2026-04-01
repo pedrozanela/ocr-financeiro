@@ -159,10 +159,11 @@ resources:
           depends_on:
             - task_key: register
           notebook_task:
-            notebook_path: ./notebooks/run_llm_from_table.py
+            notebook_path: ./notebooks/batch_job.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
               endpoint: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
