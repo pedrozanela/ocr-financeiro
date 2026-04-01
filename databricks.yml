@@ -64,7 +64,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
 
     run_llm_extraction:
       name: "ocr-financeiro-run-llm"
@@ -82,7 +82,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
 
     reprocess_all:
       name: "ocr-financeiro-reprocess-all"
@@ -101,7 +101,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
 
     update_fewshot_weekly:
       name: "ocr-financeiro-atualizar-modelo"
@@ -118,7 +118,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
       schedule:
         quartz_cron_expression: "0 0 6 ? * MON"
         timezone_id: "America/Sao_Paulo"
@@ -140,7 +140,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
 
     register_model:
       name: "ocr-financeiro-register-model"
@@ -158,7 +158,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
 
     batch_job:
       name: "ocr-financeiro-batch-job"
@@ -177,7 +177,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "5"
 
   apps:
     ocr_financeiro_app:
