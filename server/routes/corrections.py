@@ -142,8 +142,7 @@ def get_corrections(document_name: str):
                COALESCE(status, 'pendente') AS status,
                CAST(confirmado_em AS STRING) AS confirmado_em,
                COALESCE(confirmado_por, '') AS confirmado_por,
-               CAST(criado_em AS STRING) AS criado_em,
-               COALESCE(criado_por, '') AS criado_por
+               CAST(criado_em AS STRING) AS criado_em
         FROM {CORRECTIONS_TABLE}
         WHERE document_name = :name
         ORDER BY criado_em DESC
