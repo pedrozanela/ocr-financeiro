@@ -53,6 +53,7 @@
   "ativo_circulante.titulos_a_receber": {
     "conceito": "O que clientes devem por vendas a prazo",
     "aliases": [
+      "Contas a receber",
       "cartao de credito",
       "TÍTULOS A RECEBER",
       "cheque pre datado",
@@ -252,10 +253,21 @@
     ]
   },
   "ativo_circulante.outros_ativos_financeiros": {
-    "conceito": "Aplicações ou investimentos com restrição de saque",
+    "conceito": "Aplicações financeiras, títulos e valores mobiliários com restrição de saque ou natureza de investimento",
     "aliases": [
       "Instrumentos financeiros",
-      "Instrumentos Financeiros Derivativos."
+      "Instrumentos Financeiros Derivativos",
+      "Títulos e valores mobiliários",
+      "Títulos e valores mobiliários e outros ativos financeiros",
+      "Aplicações financeiras",
+      "Aplicações financeiras de liquidez imediata",
+      "Aplicações em títulos e valores mobiliários",
+      "Certificado de depósito bancário",
+      "CDB",
+      "Fundo de renda fixa",
+      "Letras financeiras do tesouro",
+      "Títulos do tesouro",
+      "Valores mobiliários."
     ]
   },
   "ativo_nao_circulante.titulos_a_receber": {

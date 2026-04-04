@@ -2,7 +2,7 @@
   {
     "id": 1,
     "titulo": "Direito de Uso / Arrendamento (IFRS 16) → Imobilizado",
-    "regra": "Ativos de direito de uso (Right-of-use assets) e arrendamento mercantil devem ser classificados em `ativo_permanente.imobilizado`, NUNCA em `ativo_permanente.intangivel_diferido`. No passivo: obrigações de arrendamento circulante → `passivo_circulante.outros_passivos_circulante` EXCLUSIVAMENTE; obrigações de arrendamento não-circulante → `passivo_nao_circulante.outros_passivos_nao_circulantes`. PROIBIDO: arrendamento mercantil CP NÃO deve ir para `passivo_circulante.financiamentos_com_instituicoes_de_credito` nem para `passivo_circulante.outros_passivos_financeiros`. O campo `passivo_circulante.outros_passivos_financeiros` deve permanecer ZERO em documentos com IFRS 16."
+    "regra": "Ativos de direito de uso (Right-of-use assets) e arrendamento mercantil devem ser classificados em `ativo_permanente.imobilizado`, NUNCA em `ativo_permanente.intangivel_diferido`. No passivo: obrigações de arrendamento circulante → `passivo_circulante.outros_passivos_circulante` EXCLUSIVAMENTE; obrigações de arrendamento não-circulante → `passivo_nao_circulante.outros_passivos_nao_circulantes`. PROIBIDO: arrendamento mercantil CP NÃO deve ir para `passivo_circulante.financiamentos_com_instituicoes_de_credito` nem para `passivo_circulante.outros_passivos_financeiros`. O campo `passivo_circulante.outros_passivos_financeiros` deve permanecer ZERO em documentos com IFRS 16, A MENOS que o documento apresente explicitamente outros passivos financeiros além do arrendamento (ex: derivativos, instrumentos financeiros). Nesse caso, classifique apenas esses outros itens em `outros_passivos_financeiros` — nunca o arrendamento."
   },
   {
     "id": 2,
@@ -32,7 +32,7 @@
   {
     "id": 7,
     "titulo": "DRE — sempre usar valor ACUMULADO do período",
-    "regra": "Quando o documento apresenta DRE com colunas trimestrais E acumuladas, SEMPRE extraia o valor ACUMULADO do período completo, não o valor do trimestre isolado. Ex: se há colunas '3T25' e '9M25', use '9M25'. Se há 'Jul-Set/2025' e 'Jan-Set/2025', use 'Jan-Set/2025'."
+    "regra": "Quando o documento apresenta DRE com colunas trimestrais E acumuladas, SEMPRE extraia o valor ACUMULADO do período completo, não o valor do trimestre isolado. Ex: se há colunas '3T25' e '9M25', use '9M25'. Se há 'Jul-Set/2025' e 'Jan-Set/2025', use 'Jan-Set/2025'. Quando aplicar esta regra junto com a Regra 16 (multi-coluna), combine os dois critérios: escolha a coluna do tipo_entidade correto E do período acumulado."
   },
   {
     "id": 8,
@@ -41,8 +41,8 @@
   },
   {
     "id": 9,
-    "titulo": "C/C Sócios — incluir Empréstimos a/de sócios",
-    "regra": "Valores de 'Empréstimos a terceiros', 'Empréstimos a sócios', 'Empréstimos a receber LP' devem ser classificados nos campos `conta_corrente_socios_control_colig` (AC ou ANC), não em Outros Ativos Circulantes ou Outros Realizável LP."
+    "titulo": "C/C Sócios — incluir Empréstimos a/de sócios e partes relacionadas",
+    "regra": "Valores de 'Empréstimos a sócios', 'Empréstimos de sócios', 'Mútuo com partes relacionadas', 'Contas a receber de partes relacionadas' devem ser classificados nos campos `conta_corrente_socios_control_colig` (AC ou ANC conforme o prazo). 'Empréstimos a terceiros' sem vínculo com sócios ou coligadas devem ir em `outros_ativos_circulantes` (CP) ou `outros_realizavel_a_longo_prazo` (LP)."
   },
   {
     "id": 10,
@@ -51,13 +51,13 @@
   },
   {
     "id": 11,
-    "titulo": "NUNCA ajustar valores para forçar consistência",
-    "regra": "Extraia SEMPRE o valor exato que aparece no documento, mesmo que a soma dos sub-itens não bata com o total do grupo. NUNCA ajuste, arredonde ou redistribua valores para forçar a soma a fechar. Se a soma dos sub-itens divergir do total extraído, reporte ambos como estão no documento. A divergência será tratada pela validação posterior, não pelo modelo."
+    "titulo": "NUNCA ajustar sub-itens para forçar consistência de totais",
+    "regra": "Extraia SEMPRE o valor exato que aparece no documento para cada sub-item, mesmo que a soma dos sub-itens não bata com o total do grupo. NUNCA ajuste, arredonde ou redistribua sub-itens para forçar a soma a fechar. Se a soma divergir do total extraído, reporte ambos como estão no documento — a divergência será tratada pela validação posterior. ATENÇÃO: esta regra se aplica à extração de sub-itens. Para totais que não aparecem explicitamente no documento, aplica-se a Regra 12, que autoriza o cálculo por cascata."
   },
   {
     "id": 12,
     "titulo": "DRE — cascata dos totais deve ser consistente",
-    "regra": "Os campos totais da DRE devem seguir a cascata correta: (1) `receita_operacional_liquida` = `receita_operacional_bruta` - `total_deducoes` + `incentivos_a_exportacoes`. (2) `lucro_bruto` = `receita_operacional_liquida` - `total_custo`. (3) `lucro_operacional` = `lucro_bruto` - `total_despesas_operacionais`. (4) `lucro_financeiro` = `lucro_operacional` - `despesas_financeiras` + `total_receitas_financeiras`. (5) `lucro_antes_imposto_de_renda` = `lucro_financeiro` + `resultado_de_equivalencia_patrimonial` + `receita_nao_operacional` - `despesa_nao_operacional` + `saldo_correcao_monetaria` + `resultado_alienacao_ativos`. (6) `lucro_liquido` = `lucro_antes_imposto_de_renda` - `provisao_imposto_de_renda` - `csll` - `participacoes_gratificacoes_estatutarias` - `participacao_minoritarios`. Se o documento traz o valor direto de um total, extraia esse valor. Mas se o total não aparece explicitamente no documento, calcule-o seguindo a cascata acima."
+    "regra": "Os campos totais da DRE devem seguir a cascata correta: (1) `receita_operacional_liquida` = `receita_operacional_bruta` - `total_deducoes` + `incentivos_a_exportacoes`. (2) `lucro_bruto` = `receita_operacional_liquida` - `total_custo`. (3) `lucro_operacional` = `lucro_bruto` - `total_despesas_operacionais`. (4) `lucro_financeiro` = `lucro_operacional` - `despesas_financeiras` + `total_receitas_financeiras`. (5) `lucro_antes_imposto_de_renda` = `lucro_financeiro` + `resultado_de_equivalencia_patrimonial` + `receita_nao_operacional` - `despesa_nao_operacional` + `saldo_correcao_monetaria` + `resultado_alienacao_ativos`. (6) `lucro_liquido` = `lucro_antes_imposto_de_renda` - `provisao_imposto_de_renda` - `csll` - `participacoes_gratificacoes_estatutarias` - `participacao_minoritarios`. Se o documento traz o valor direto de um total, extraia esse valor (Regra 11). Se o total não aparece explicitamente no documento, calcule-o seguindo a cascata acima."
   },
   {
     "id": 13,
@@ -67,6 +67,31 @@
   {
     "id": 14,
     "titulo": "Ativo Não Circulante vs Ativo Permanente — NÃO duplicar",
-    "regra": "O Ativo Não Circulante (ANC) e o Ativo Permanente (AP) são grupos DISTINTOS. O ANC contém: títulos a receber LP, estoques LP, adiantamentos LP, impostos a recuperar LP, despesas pagas antecipadamente, C/C sócios LP e outros realizável LP. O AP contém: investimentos, imobilizado e intangível/diferido. NUNCA duplique valores entre ANC e AP. Se o documento apresenta 'Ativo Não Circulante' como um bloco único contendo tanto realizável LP quanto investimentos/imobilizado/intangível, classifique: (a) investimentos, imobilizado e intangível em `ativo_permanente`; (b) demais itens de longo prazo em `ativo_nao_circulante`; (c) `total_ativo_nao_circulante` = soma apenas dos itens de (b), NÃO inclua investimentos/imobilizado/intangível; (d) `total_ativo_permanente` = soma de investimentos + imobilizado + intangível. A regra fundamental: `ativo_total` = `total_ativo_circulante` + `total_ativo_nao_circulante` + `total_ativo_permanente`. Se ao somar os três totais o resultado for maior que o ativo total extraído, há duplicação — corrija."
+    "regra": "O Ativo Não Circulante (ANC) e o Ativo Permanente (AP) são grupos DISTINTOS. O ANC contém: títulos a receber LP, estoques LP, adiantamentos LP, impostos a recuperar LP, despesas pagas antecipadamente, C/C sócios LP e outros realizável LP. O AP contém: investimentos, imobilizado e intangível/diferido (como campos separados — ver Regra 18 para o tratamento da depreciação do imobilizado). NUNCA duplique valores entre ANC e AP. Se o documento apresenta 'Ativo Não Circulante' como um bloco único contendo tanto realizável LP quanto investimentos/imobilizado/intangível, classifique: (a) investimentos, imobilizado e intangível em `ativo_permanente`; (b) demais itens de longo prazo em `ativo_nao_circulante`; (c) `total_ativo_nao_circulante` = soma apenas dos itens de (b), NÃO inclua investimentos/imobilizado/intangível; (d) `total_ativo_permanente` = soma de investimentos + imobilizado líquido + intangível. A regra fundamental: `ativo_total` = `total_ativo_circulante` + `total_ativo_nao_circulante` + `total_ativo_permanente`. Se ao somar os três totais o resultado for maior que o ativo total extraído, há duplicação — corrija."
+  },
+  {
+    "id": 15,
+    "titulo": "Fallback para campos sem correspondente direto → 'outros'",
+    "regra": "Quando uma linha do documento não tiver campo específico no schema, classifique-a no campo 'outros' do grupo correspondente: `ativo_circulante.outros_ativos_circulantes`, `ativo_nao_circulante.outros_realizavel_a_longo_prazo`, `passivo_circulante.outros_passivos_circulante`, `passivo_nao_circulante.outros_passivos_nao_circulantes`. NUNCA descarte ou ignore um valor do documento — todo valor deve ser alocado em algum campo. Esta regra é o fallback geral — regras específicas (1, 2, 3, 6, 9) têm precedência quando o item se enquadra nelas. Exemplos de itens que devem ir para 'outros': 'Arrendamento mercantil LP' → `passivo_nao_circulante.outros_passivos_nao_circulantes`; 'Receita diferida LP' → `passivo_nao_circulante.outros_passivos_nao_circulantes`; 'Contas a pagar a partes relacionadas LP' → `passivo_nao_circulante.outros_passivos_nao_circulantes` (se não houver mútuo ativo explícito). ARITMÉTICA OBRIGATÓRIA: campos outros_* não existem como linha explícita no documento — são campos calculados que agregam múltiplos itens. Por isso, o valor de outros_* deve ser a SOMA ARITMÉTICA de TODOS os itens alocados nele. Nunca use o valor de apenas um dos itens. Exemplo: se outros_passivos_circulante recebe 'Contas a pagar: 73.280.383 + Outras Obrigações: 1.429.610 + Arrendamento CP: 44.724.641 + Receita diferida CP: 860.000', o valor correto é 120.294.634, não 44.724.641 nem qualquer sub-conjunto. Para verificar: outros_* = total_grupo − soma(todos os demais campos específicos do grupo). ATENÇÃO: esta soma não conflita com a Regra 11 — a Regra 11 proíbe ajustar campos com valor explícito no documento; outros_* é um campo calculado, portanto está fora do escopo da Regra 11."
+  },
+  {
+    "id": 16,
+    "titulo": "Tabelas multi-coluna — sempre ler a coluna do período extraído",
+    "regra": "Quando o documento apresenta uma tabela com múltiplas colunas de datas (ex: Controladora 31/12/2024 | Controladora 31/12/2023 | Consolidado 31/12/2024 | Consolidado 31/12/2023), extraia EXCLUSIVAMENTE os valores da coluna correspondente ao `tipo_entidade` (CONSOLIDADO ou CONTROLADORA) e ao `periodo` (data de referência) que está sendo extraído. NUNCA confunda colunas. Exemplo: se está extraindo CONSOLIDADO 2024-12-31, use apenas a coluna 'Consolidado 31/12/2024', ignorando completamente as colunas de 2023 e Controladora. Quando o documento também tiver colunas trimestrais e acumuladas (ver Regra 7), aplique os dois critérios juntos: tipo_entidade correto E período acumulado."
+  },
+  {
+    "id": 17,
+    "titulo": "Múltiplas linhas para o mesmo campo — somar no campo, não descartar",
+    "regra": "Quando o documento apresenta duas ou mais linhas que mapeiam para o mesmo campo do schema (ex: 'Tributos a recuperar: 1.856.475' e 'Imposto de renda e contribuição social a recuperar: 97.771', ambas mapeando para `impostos_a_recuperar`), some os valores em um único campo. NÃO coloque um dos valores em `outros` se existe um campo específico para ele. O campo deve conter a SOMA de todos os sub-itens que pertencem a ele."
+  },
+  {
+    "id": 19,
+    "titulo": "Documentos hierárquicos (SPED/plano de contas) — usar apenas linhas folha, nunca duplicar com o pai",
+    "regra": "Documentos no formato SPED ou plano de contas apresentam hierarquia de contas com código numérico (ex: 32 ADIANTAMENTOS 339.379,30 → 37 Adiantamento fornecedores 31.894,58 → 39 Adiantamento Férias 4.289,17 → 1384 Adiantamentos a Sócios 303.195,55). Nesse caso, use APENAS os valores das linhas filha (folhas da hierarquia) para preencher os campos do schema. NUNCA some o valor da linha pai com os valores dos filhos — isso duplica o total. Regra de identificação: se a soma dos sub-itens abaixo de uma linha é igual ao valor dessa linha, ela é um totalizador — descarte-a e use apenas os sub-itens. Exemplo correto: usar 31.894,58 + 4.289,17 + 303.195,55 para ADIANTAMENTOS (não 339.379,30 + os filhos). ATENÇÃO: esta regra não conflita com a Regra 17 — a 17 trata linhas irmãs (mesmo nível hierárquico) que mapeiam para o mesmo campo; esta regra trata linhas pai/filho onde o pai é um totalizador dos filhos."
+  },
+  {
+    "id": 18,
+    "titulo": "Depreciação — subtrair SOMENTE do Imobilizado bruto, nunca do Intangível",
+    "regra": "Quando o documento lista Imobilizado, Intangível e Depreciação como linhas separadas, a Depreciação deve ser subtraída SOMENTE do Imobilizado bruto para obter o Imobilizado líquido. O Intangível permanece no seu próprio campo (`ativo_permanente.intangivel_diferido`) com o valor original. NUNCA some Imobilizado + Intangível antes de subtrair a Depreciação. Exemplo correto: Imobilizado 44.204 − Depreciação 13.703 = Imobilizado líquido 30.501; Intangível = 133 (separado). Exemplo ERRADO: (44.204 + 133) − 13.703 = 30.634 como imobilizado, depois 133 como intangível novamente — isso duplica o Intangível. Ver também Regra 14, que define imobilizado e intangível como campos distintos do Ativo Permanente."
   }
 ]

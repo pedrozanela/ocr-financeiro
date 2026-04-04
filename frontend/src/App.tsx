@@ -18,9 +18,8 @@ export default function App() {
   const [view, setView] = useState<'docs' | 'metrics'>('docs')
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [uploadingPerf, setUploadingPerf] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [modelUpdating, setModelUpdating] = useState(false)
-  const [modelUpdateMsg, setModelUpdateMsg] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [currentUser, setCurrentUser] = useState<string | null>(null)
 
@@ -60,13 +59,45 @@ export default function App() {
         }
         if (st.status === 'error') throw new Error(st.detail ?? 'Erro ao processar OCR')
       }
-      // Job continues running in background — user can refresh to see results
       await loadDocs()
       setView('docs')
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function handleUploadPerformance(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setUploadingPerf(true)
+    setUploadError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/documents/upload-performance', { method: 'POST', body: form })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.detail ?? 'Erro desconhecido')
+      const docName = body.document_name
+      for (let i = 0; i < 360; i++) {
+        await new Promise(r => setTimeout(r, 5000))
+        const st = await fetch(`/api/documents/${encodeURIComponent(docName)}/status`).then(r => r.json())
+        if (st.status === 'done') {
+          await loadDocs()
+          setSelected(docName)
+          setView('docs')
+          return
+        }
+        if (st.status === 'error') throw new Error(st.detail ?? 'Erro ao processar OCR')
+      }
+      await loadDocs()
+      setView('docs')
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
+    } finally {
+      setUploadingPerf(false)
     }
   }
 
@@ -145,10 +176,12 @@ export default function App() {
 
         {/* Footer actions */}
         <div className="px-4 py-4 border-t border-white/10 space-y-2">
-          {uploading && (
+          {(uploading || uploadingPerf) && (
             <div className="flex items-center gap-2 bg-blue-400/20 rounded-lg px-3 py-2">
               <div className="w-3 h-3 border border-blue-300/50 border-t-blue-200 rounded-full animate-spin shrink-0" />
-              <p className="text-xs text-blue-200">Extraindo dados… pode levar 1-3 min</p>
+              <p className="text-xs text-blue-200">
+                {uploadingPerf ? 'Modo Performance… pode levar 4-6 min' : 'Extraindo dados… pode levar 2-4 min'}
+              </p>
             </div>
           )}
           {uploadError && (
@@ -156,20 +189,24 @@ export default function App() {
               <p className="text-xs text-red-300">{uploadError}</p>
             </div>
           )}
-          {modelUpdateMsg && (
-            <div className="bg-amber-500/10 rounded-lg px-3 py-2">
-              <p className="text-[10px] text-amber-300/80 leading-relaxed">{modelUpdateMsg}</p>
-            </div>
-          )}
-
           <label className={`flex items-center justify-center gap-2 w-full py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-            uploading ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/18'
+            (uploading || uploadingPerf) ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/18'
           }`}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
             {uploading ? 'Processando…' : 'Enviar PDF'}
-            <input type="file" accept=".pdf" className="hidden" onChange={handleUpload} disabled={uploading} />
+            <input type="file" accept=".pdf" className="hidden" onChange={handleUpload} disabled={uploading || uploadingPerf} />
+          </label>
+
+          <label className={`flex items-center justify-center gap-2 w-full py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+            (uploading || uploadingPerf) ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+          }`}>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {uploadingPerf ? 'Processando…' : 'Enviar PDF — Modo Performance'}
+            <input type="file" accept=".pdf" className="hidden" onChange={handleUploadPerformance} disabled={uploading || uploadingPerf} />
           </label>
 
           <a
@@ -182,37 +219,6 @@ export default function App() {
             </svg>
             Exportar Excel
           </a>
-
-          <button
-            disabled={modelUpdating}
-            onClick={async () => {
-              setModelUpdating(true)
-              setModelUpdateMsg(null)
-              try {
-                const res = await fetch('/api/admin/update-model', { method: 'POST' })
-                const data = await res.json()
-                if (res.ok) {
-                  setModelUpdateMsg(`Job disparado (run ${data.run_id}). Modelo será atualizado em ~10min.`)
-                } else {
-                  setModelUpdateMsg(`Erro: ${data.detail || 'falha ao disparar'}`)
-                }
-              } catch {
-                setModelUpdateMsg('Erro de conexão')
-              } finally {
-                setModelUpdating(false)
-              }
-            }}
-            className={`flex items-center justify-center gap-2 w-full py-2 rounded-lg text-xs font-medium transition-all ${
-              modelUpdating
-                ? 'bg-amber-500/10 text-amber-300/40 cursor-wait'
-                : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/20'
-            }`}
-          >
-            <svg className={`w-3.5 h-3.5 ${modelUpdating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            {modelUpdating ? 'Atualizando modelo…' : 'Atualizar Modelo'}
-          </button>
 
           {currentUser && (
             <div className="flex items-center gap-2 pt-1">

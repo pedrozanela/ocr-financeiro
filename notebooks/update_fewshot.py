@@ -279,8 +279,8 @@ config = {
         "name": "techfin-ocr-v4",
         "entity_name": UC_MODEL_NAME,
         "entity_version": str(latest_version),
-        "workload_size": "Small",
-        "scale_to_zero_enabled": True
+        "workload_size": "Large",
+        "scale_to_zero_enabled": False
     }]
 }
 

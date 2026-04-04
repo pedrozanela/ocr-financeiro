@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from ..db import execute_sql
-from ..config import RESULTS_TABLE, PDF_VOLUME_PATH, get_client
+from ..config import RESULTS_TABLE, SOURCE_TABLE, PDF_VOLUME_PATH, get_client
 from .upload import _runs
 
 router = APIRouter()
@@ -65,14 +65,35 @@ def get_document(document_name: str):
 @router.post("/documents/{document_name}/reprocess")
 def reprocess_document(document_name: str):
     from .upload import _get_batch_job_id
+    from ..db import execute_update
     client = get_client()
     try:
+        # Remove from resultados so batch_job picks it up as new
+        execute_update(
+            f"DELETE FROM {RESULTS_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
         job_id = _get_batch_job_id(client)
         run = client.jobs.run_now(job_id=job_id)
         _runs[document_name] = run.run_id
         return {"document_name": document_name, "status": "processing", "run_id": run.run_id}
     except Exception as e:
         raise HTTPException(500, f"Erro ao disparar job: {e}")
+
+
+@router.get("/documents/{document_name}/ocr-text")
+def get_document_ocr_text(document_name: str):
+    rows = execute_sql(
+        f"SELECT document_text, atualizado_em, atualizado_por FROM {SOURCE_TABLE} WHERE document_name = :name LIMIT 1",
+        [{"name": "name", "value": document_name}],
+    )
+    if not rows or not rows[0].get("document_text"):
+        raise HTTPException(404, "Texto OCR não disponível para este documento")
+    return {
+        "document_text": rows[0]["document_text"],
+        "atualizado_em": str(rows[0].get("atualizado_em") or ""),
+        "atualizado_por": rows[0].get("atualizado_por") or "",
+    }
 
 
 @router.get("/documents/{document_name}/pdf")

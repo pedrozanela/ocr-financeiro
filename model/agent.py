@@ -154,34 +154,53 @@ def clean_schema(schema: dict) -> dict:
 # ---------------------------------------------------------------------------
 class TechFinExtractorAgent(PythonModel):
 
-    def load_context(self, context):
-        from openai import OpenAI
+    def _get_client(self):
+        """Cria o cliente OpenAI com as credenciais do ambiente.
 
-        # Auth: resolve token + host from the environment.
-        # Priority: DATABRICKS_TOKEN env var (injected by platform or secrets),
-        # then WorkspaceClient SDK (for local dev / apps).
-        token = os.environ.get("DATABRICKS_TOKEN")
-        host  = os.environ.get("DATABRICKS_HOST")
-        if not token or not host:
-            try:
-                from databricks.sdk import WorkspaceClient
-                w = WorkspaceClient()
-                token = token or w.config.token
-                host  = host or w.config.host
-            except Exception:
-                pass
+        No Model Serving, o Databricks injeta DATABRICKS_CLIENT_ID +
+        DATABRICKS_CLIENT_SECRET + DATABRICKS_HOST via automatic auth passthrough
+        (quando resources são declarados no log_model). O WorkspaceClient() descobre
+        essas variáveis automaticamente via unified auth e resolve o token OAuth.
+
+        Fallback: lê DATABRICKS_TOKEN diretamente (PAT manual ou Apps).
+        """
+        from openai import OpenAI
+        from databricks.sdk import WorkspaceClient
+
+        host = os.environ.get("DATABRICKS_HOST", "")
+        token = os.environ.get("DATABRICKS_TOKEN", "")
+
         if not token:
-            raise RuntimeError("No auth token found. Set DATABRICKS_TOKEN env var.")
+            # automatic passthrough usa DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET
+            # config.authenticate() espera um callable (visitor), não um dict
+            w = WorkspaceClient()
+            host = host or w.config.host or ""
+            auth_headers = {}
+            w.config.authenticate(auth_headers.update)  # dict.update é callable
+            bearer = auth_headers.get("Authorization", "")
+            if bearer.startswith("Bearer "):
+                token = bearer[len("Bearer "):]
+
+        if not token:
+            raise RuntimeError(
+                "No auth token found. Env vars checked: DATABRICKS_TOKEN, "
+                "DATABRICKS_CLIENT_ID+DATABRICKS_CLIENT_SECRET."
+            )
         if not host:
             raise RuntimeError("No host found. Set DATABRICKS_HOST env var.")
 
         if not host.startswith("http"):
             host = f"https://{host}"
 
-        self.client = OpenAI(
+        return OpenAI(
             api_key=token,
             base_url=f"{host.rstrip('/')}/serving-endpoints",
         )
+
+    def load_context(self, context):
+        # NÃO inicializar o client aqui — credenciais OAuth M2M são injetadas
+        # pelo Databricks apenas em request time, não durante o load do modelo.
+        # O client é criado em predict() via _get_client().
 
         with open(context.artifacts["output_schema"]) as f:
             raw_schema = json.load(f)
@@ -253,7 +272,7 @@ class TechFinExtractorAgent(PythonModel):
             f"DOCUMENTO:\n{text}"
         )
 
-    def _judge(self, text: str, result: dict) -> tuple[list, dict]:
+    def _judge(self, client, text: str, result: dict) -> tuple[list, dict]:
         """Avalia qualidade da extração. Retorna (lista de campos suspeitos, usage dict)."""
         result_for_judge = copy.deepcopy(result)
         result_for_judge.pop("fontes", None)  # Remove fontes para reduzir tokens
@@ -264,7 +283,7 @@ class TechFinExtractorAgent(PythonModel):
             f"JSON EXTRAÍDO:\n{result_str}"
         )
         try:
-            response = self.client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=os.environ.get("JUDGE_MODEL", os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6")),
                 messages=[
                     {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
@@ -333,6 +352,8 @@ class TechFinExtractorAgent(PythonModel):
     def predict(self, context, model_input):
         import pandas as pd
 
+        client = self._get_client()
+
         if isinstance(model_input, pd.DataFrame):
             texts = model_input.iloc[:, 0].tolist()
         elif isinstance(model_input, dict):
@@ -345,7 +366,7 @@ class TechFinExtractorAgent(PythonModel):
 
         results = []
         for text in texts:
-            response = self.client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6"),
                 messages=[
                     {"role": "system", "content": self._system_prompt()},

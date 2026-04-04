@@ -41,9 +41,18 @@ spark.sql(f"""
     CREATE TABLE IF NOT EXISTS {catalog}.{schema}.documentos (
         document_name STRING,
         document_text STRING,
-        ingested_at TIMESTAMP
+        ingested_at TIMESTAMP,
+        atualizado_em TIMESTAMP,
+        atualizado_por STRING
     ) USING DELTA
 """)
+# Migração: adiciona colunas novas se a tabela já existia sem elas
+for col, dtype in [("ingested_at", "TIMESTAMP"), ("atualizado_em", "TIMESTAMP"), ("atualizado_por", "STRING")]:
+    try:
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.documentos ADD COLUMN {col} {dtype}")
+        print(f"  Coluna {col} adicionada")
+    except Exception:
+        pass  # coluna já existe
 print("Tabela documentos OK")
 
 # COMMAND ----------
