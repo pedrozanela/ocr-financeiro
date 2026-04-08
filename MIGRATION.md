@@ -17,15 +17,17 @@ O notebook `register_model` registra o modelo e cria o serving endpoint.
 Nao e necessario criar PATs, secret scopes, ou Service Principals manualmente.
 A app e o endpoint usam suas identidades nativas (auto-gerenciadas pela plataforma).
 
-**Tempo total estimado: ~30min** (a maior parte e espera por provisionamento).
+**Tempo total estimado: ~20min** (a maior parte e espera por provisionamento).
 
 ```
 1. Clonar repo via Git Folders
 2. Configurar variaveis (databricks.yml, app.yaml)
 3. Deploy do bundle (cria jobs + app)
 4. Iniciar a app e copiar o SP
-5. Setup infraestrutura + permissoes        (~5min)
-6. Registrar modelo + criar endpoint        (~15min)
+5. Rodar em paralelo:
+   ├─ setup_infrastructure + permissoes     (~5min)
+   └─ register_model + endpoint             (~15min)
+6. Conceder permissoes no endpoint e warehouse (via UI)
 7. Upload de PDFs e verificar               (via app)
 ```
 
@@ -103,50 +105,47 @@ O bundle cria a app mas nao a inicia automaticamente.
    - **Source code path**: `/Workspace/Users/seu_email/.bundle/ocr-financeiro/files`
 5. Aguardar status **Running** (~2-3min)
 
-## 5. Setup da infraestrutura + permissoes
+## 5. Rodar os dois jobs em paralelo
 
-Este job cria o schema, tabelas e volume, e concede permissoes ao SP da app.
+Estes dois jobs sao independentes — rode ambos ao mesmo tempo para economizar tempo.
 
-1. No sidebar, ir em **Workflows** (ou **Jobs & Pipelines**)
-2. Encontrar **ocr-financeiro-setup-infrastructure**
-3. Clicar **Run now with different parameters**
-4. Preencher:
+No sidebar, ir em **Workflows** (ou **Jobs & Pipelines**):
+
+### 5a. setup_infrastructure (+ permissoes)
+
+1. Encontrar **ocr-financeiro-setup-infrastructure**
+2. Clicar **Run now with different parameters**
+3. Preencher:
    - `sp_client_id`: colar o SP Client ID copiado no passo 4
    - `catalog` e `schema` ja vem preenchidos pelo bundle
-5. Clicar **Run now**
+4. Clicar **Run now**
 
-O job cria a infraestrutura E concede permissoes (UC + jobs) em uma unica execucao.
+Cria schema, tabelas, volume e concede permissoes UC + jobs ao SP da app.
+Tempo: ~5min.
 
-Tempo: ~5-7min.
+### 5b. register_model (+ endpoint)
 
-Apos o job concluir, conceder 2 permissoes adicionais pela UI:
-
-**Warehouse:**
-
-1. Em **SQL Warehouses** → selecionar o warehouse → aba **Permissions**
-2. Clicar **Grant access** → buscar pelo nome do SP (ex: `app-XXXX ocr-financeiro`)
-3. Selecionar **Can use** → **Add**
-
-> **Nota**: A permissao no serving endpoint sera concedida depois do passo 6
-> (o endpoint ainda nao existe neste momento).
-
-## 6. Registrar modelo + criar endpoint
-
-1. Em **Workflows**, encontrar **ocr-financeiro-register-model**
+1. Encontrar **ocr-financeiro-register-model**
 2. Clicar **Run now**
 
-Este job faz tudo automaticamente:
-- Registra o modelo `extrator_financeiro` no Unity Catalog
-- Cria o serving endpoint `extrator-financeiro` (ou atualiza se ja existir)
-- Aguarda o endpoint ficar READY
+Registra o modelo no Unity Catalog, cria o serving endpoint e aguarda READY.
+Tempo: ~15min.
 
-Tempo: ~15min (inclui provisionamento do endpoint).
+## 6. Conceder permissoes no endpoint e warehouse
 
-Apos o job concluir, conceder permissao no endpoint ao SP da app:
+Apos **ambos os jobs** do passo 5 concluirem:
+
+**Serving endpoint:**
 
 1. Em **Serving** → `extrator-financeiro` → aba **Permissions**
 2. Clicar **Grant access** → buscar pelo nome do SP (ex: `app-XXXX ocr-financeiro`)
 3. Selecionar **Can query** → **Add**
+
+**Warehouse:**
+
+1. Em **SQL Warehouses** → selecionar o warehouse → aba **Permissions**
+2. Clicar **Grant access** → buscar pelo nome do SP da app
+3. Selecionar **Can use** → **Add**
 
 ## 7. Upload de PDFs e verificar
 
@@ -172,9 +171,9 @@ A app ja esta rodando (passo 4) e com todas as permissoes configuradas.
 [ ] App iniciada e RUNNING
 [ ] SP da app copiado
 [ ] Job setup_infrastructure rodou com SP (infraestrutura + permissoes UC + jobs)
-[ ] Warehouse: SP tem Can use
 [ ] Job register_model: sucesso (modelo + endpoint READY)
 [ ] Endpoint: SP tem Can query
+[ ] Warehouse: SP tem Can use
 [ ] PDF uploadado via app e processado com sucesso
 [ ] App mostrando dados extraidos
 ```
