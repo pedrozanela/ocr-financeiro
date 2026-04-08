@@ -2,12 +2,13 @@
 # OCR Financeiro — Databricks Asset Bundle
 #
 # Para deploy em novo ambiente:
-#   1. Adicionar/editar o target com seu profile, catalog e warehouse IDs
-#   2. Atualizar app.yaml com os mesmos valores
-#   3. Deploy: databricks bundle deploy --target <target>
+#   1. Adicionar um novo target com profile, catalog e warehouse IDs do ambiente
+#   2. Deploy: databricks bundle deploy --target <target>
+#   3. Após o primeiro deploy, rodar o job ocr-financeiro-setup-infrastructure
+#      e depois ocr-financeiro-register-model para registrar o endpoint
 #
 # Todos os jobs usam Serverless compute (sem necessidade de configurar clusters).
-# Guia completo: MIGRATION.md
+# O app recebe os IDs dos jobs automaticamente via ${resources.jobs.<name>.id}.
 # =============================================================================
 
 bundle:
@@ -29,6 +30,16 @@ workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
 
 targets:
+  # ── Ambiente pessoal (e2-demo-field-eng) ───────────────────────────────────
+  e2demo:
+    workspace:
+      profile: DEFAULT
+    variables:
+      catalog: pedro_zanela
+      warehouse_id: "862f1d757f0424f7"
+      serverless_warehouse_id: "862f1d757f0424f7"
+
+  # ── Ambientes do cliente ───────────────────────────────────────────────────
   fevm:
     workspace:
       profile: fevm
@@ -37,13 +48,13 @@ targets:
       schema: ocr_financeiro_v3
       warehouse_id: "2c3975c5e258e46b"
       serverless_warehouse_id: "95673eae327f2ace"
+
   azfevm:
     default: true
     workspace:
       profile: azfevm
     variables:
       catalog: catalog_nqc8lc_8uoefp
-      schema: ocr_financeiro
       warehouse_id: "970182bc1a3cc5a0"
       serverless_warehouse_id: "970182bc1a3cc5a0"
 
@@ -61,83 +72,7 @@ resources:
               sp_client_id: ""
             source: WORKSPACE
           environment_key: default
-      performance_target: STANDARD
-      environments:
-        - environment_key: default
-          spec:
-            client: "5"
-
-    run_llm_extraction:
-      name: "ocr-financeiro-run-llm"
-      tasks:
-        - task_key: extract
-          notebook_task:
-            notebook_path: ./notebooks/run_llm_from_table.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              endpoint: ${var.endpoint_name}
-            source: WORKSPACE
-          environment_key: default
-      performance_target: STANDARD
-      environments:
-        - environment_key: default
-          spec:
-            client: "5"
-
-    reprocess_all:
-      name: "ocr-financeiro-reprocess-all"
-      tasks:
-        - task_key: reprocess
-          notebook_task:
-            notebook_path: ./notebooks/reprocess_all.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
-              endpoint: ${var.endpoint_name}
-            source: WORKSPACE
-          environment_key: default
-      performance_target: STANDARD
-      environments:
-        - environment_key: default
-          spec:
-            client: "5"
-
-    update_fewshot_weekly:
-      name: "ocr-financeiro-atualizar-modelo"
-      tasks:
-        - task_key: update_fewshot
-          notebook_task:
-            notebook_path: ./notebooks/update_fewshot.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-            source: WORKSPACE
-          environment_key: default
-      performance_target: STANDARD
-      environments:
-        - environment_key: default
-          spec:
-            client: "5"
-      schedule:
-        quartz_cron_expression: "0 0 6 ? * MON"
-        timezone_id: "America/Sao_Paulo"
-        pause_status: PAUSED
-
-    grant_permissions:
-      name: "ocr-financeiro-grant-permissions"
-      tasks:
-        - task_key: grant
-          notebook_task:
-            notebook_path: ./notebooks/grant_permissions.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              sp_client_id: ""
-            source: WORKSPACE
-          environment_key: default
-      performance_target: STANDARD
+      performance_target: PERFORMANCE_OPTIMIZED
       environments:
         - environment_key: default
           spec:
@@ -155,6 +90,105 @@ resources:
               endpoint_name: ${var.endpoint_name}
             source: WORKSPACE
           environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
+    grant_permissions:
+      name: "ocr-financeiro-grant-permissions"
+      tasks:
+        - task_key: grant
+          notebook_task:
+            notebook_path: ./notebooks/grant_permissions.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              sp_client_id: ""
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
+    batch_job:
+      name: "ocr-financeiro-batch-job"
+      tasks:
+        - task_key: batch
+          notebook_task:
+            notebook_path: ./notebooks/batch_job.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_path: ""
+              endpoint: ${var.endpoint_name}
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
+    reprocess_all:
+      name: "ocr-financeiro-reprocess-all"
+      tasks:
+        - task_key: reprocess
+          notebook_task:
+            notebook_path: ./notebooks/reprocess_all.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_path: ""
+              endpoint: ${var.endpoint_name}
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
+    update_fewshot_weekly:
+      name: "ocr-financeiro-atualizar-modelo"
+      tasks:
+        - task_key: update_fewshot
+          notebook_task:
+            notebook_path: ./notebooks/update_fewshot.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * MON"
+        timezone_id: "America/Sao_Paulo"
+        pause_status: PAUSED
+
+    # ── Vision OCR — Modo Performance ─────────────────────────────────────────
+    vision_extraction:
+      name: "ocr-financeiro-vision-extraction"
+      tasks:
+        - task_key: vision
+          notebook_task:
+            notebook_path: ./notebooks/vision_extraction.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_path: ""
+              extractor_endpoint: ${var.endpoint_name}
+              pdf_name: ""
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
         - task_key: initial_extraction
           depends_on:
             - task_key: register
@@ -173,20 +207,23 @@ resources:
           spec:
             client: "5"
 
-    batch_job:
-      name: "ocr-financeiro-batch-job"
+    vision_reprocess_all:
+      name: "ocr-financeiro-vision-reprocess-all"
       tasks:
-        - task_key: batch
+        - task_key: vision_batch
           notebook_task:
-            notebook_path: ./notebooks/batch_job.py
+            notebook_path: ./notebooks/vision_reprocess_all.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-              volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
-              endpoint: ${var.endpoint_name}
+              volume_path: ""
+              extractor_endpoint: ${var.endpoint_name}
+              max_workers: "3"
+              reprocess_existing: "false"
+              pdf_filter: ""
             source: WORKSPACE
           environment_key: default
-      performance_target: STANDARD
+      performance_target: PERFORMANCE_OPTIMIZED
       environments:
         - environment_key: default
           spec:
@@ -222,6 +259,8 @@ resources:
             value: ${resources.jobs.update_fewshot_weekly.id}
           - name: BATCH_JOB_ID
             value: ${resources.jobs.batch_job.id}
+          - name: VISION_JOB_ID
+            value: ${resources.jobs.vision_extraction.id}
       permissions:
         - level: CAN_MANAGE
           user_name: ${workspace.current_user.userName}

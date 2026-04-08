@@ -16,6 +16,7 @@ import os
 import json
 import mlflow
 from mlflow.models.signature import ModelSignature
+from mlflow.models.resources import DatabricksServingEndpoint
 from mlflow.types.schema import Schema, ColSpec
 
 dbutils.widgets.text("catalog", "")
@@ -95,6 +96,10 @@ with mlflow.start_run(experiment_id=EXPERIMENT_ID, run_name="model-registration"
         pip_requirements=["openai>=1.0.0", "mlflow>=2.10.0", "databricks-sdk>=0.20.0"],
         registered_model_name=UC_MODEL_NAME,
         signature=signature,
+        resources=[
+            DatabricksServingEndpoint(endpoint_name="databricks-claude-sonnet-4-6"),
+            DatabricksServingEndpoint(endpoint_name="databricks-claude-sonnet-4-6-judge"),
+        ],
     )
     print(f"Run ID: {run.info.run_id}")
     print(f"Model URI: {model_info.model_uri}")
@@ -111,45 +116,17 @@ print(f"Modelo registrado: {UC_MODEL_NAME} v{latest_version}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. Garantir secret scope com PAT para o endpoint
+# MAGIC ## 2. Criar ou atualizar serving endpoint
 
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput
 
 w = WorkspaceClient()
 
-# The served model needs DATABRICKS_TOKEN to call FMAPI (Claude).
-# The platform does NOT auto-inject a usable token — we must provide one via secrets.
-# This cell auto-creates the secret scope + PAT so the user never has to.
-SCOPE_NAME = "ocr-financeiro"
-SECRET_KEY = "pat-servico"
-
-# Create scope if it doesn't exist
-try:
-    w.secrets.create_scope(scope=SCOPE_NAME)
-    print(f"Secret scope '{SCOPE_NAME}' criado.")
-except Exception as e:
-    if "already exists" in str(e).lower():
-        print(f"Secret scope '{SCOPE_NAME}' ja existe.")
-    else:
-        raise
-
-# Create or refresh PAT and store it
-token_info = w.tokens.create(comment="ocr-financeiro-endpoint", lifetime_seconds=7_776_000)
-w.secrets.put_secret(scope=SCOPE_NAME, key=SECRET_KEY, string_value=token_info.token_value)
-print(f"PAT criado e armazenado em {SCOPE_NAME}/{SECRET_KEY}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 3. Criar ou atualizar serving endpoint
-
-# COMMAND ----------
-
-from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput
-
-# Resolve host for the DATABRICKS_HOST env var
+# DATABRICKS_TOKEN and DATABRICKS_HOST are auto-injected by the platform into
+# every serving endpoint container — no secrets needed.
 _host = w.config.host
 if _host and not _host.startswith("http"):
     _host = f"https://{_host}"
@@ -158,10 +135,9 @@ served_entity = ServedEntityInput(
     name=ENDPOINT_NAME,
     entity_name=UC_MODEL_NAME,
     entity_version=latest_version,
-    workload_size="Small",
-    scale_to_zero_enabled=True,
+    workload_size="Large",
+    scale_to_zero_enabled=False,
     environment_vars={
-        "DATABRICKS_TOKEN": f"{{{{secrets/{SCOPE_NAME}/{SECRET_KEY}}}}}",
         "DATABRICKS_HOST": _host,
     },
 )

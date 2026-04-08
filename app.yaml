@@ -1,7 +1,8 @@
-# Databricks App config — atualizar env vars para cada ambiente.
+# Databricks App config — usado para deploy STANDALONE (databricks apps deploy).
+# Se usar DAB (databricks bundle deploy), este arquivo é ignorado —
+# as env vars são injetadas pelo databricks.yml via ${var.*} e ${resources.jobs.*.id}.
 # Auth: the app's auto-created Service Principal authenticates via WorkspaceClient().
 # No PATs or secret scopes needed.
-# Guia completo: MIGRATION.md
 command:
   - python
   - -m
@@ -16,12 +17,12 @@ env:
   # ---- EDITAR PARA CADA AMBIENTE ----
   # Warehouses
   - name: WAREHOUSE_ID
-    value: "970182bc1a3cc5a0"
+    value: "862f1d757f0424f7"
   - name: SERVERLESS_WAREHOUSE_ID
-    value: "970182bc1a3cc5a0"
+    value: "862f1d757f0424f7"
   # Unity Catalog
   - name: UC_CATALOG
-    value: "catalog_nqc8lc_8uoefp"
+    value: "pedro_zanela"
   - name: UC_SCHEMA
     value: "ocr_financeiro"
   # Serving Endpoint
@@ -29,6 +30,8 @@ env:
     value: "extrator-financeiro"
   # Jobs (atualizar apos primeiro deploy)
   - name: FEWSHOT_JOB_ID
-    value: "0"
+    value: "249734264921105"
   - name: BATCH_JOB_ID
-    value: "0"
+    value: "223610897990037"
+  - name: VISION_JOB_ID
+    value: "300600441159071"

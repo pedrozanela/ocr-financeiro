@@ -203,18 +203,27 @@ def export_excel(document: str | None = None):
             cell.border = border_light
 
     # ── Fetch data ────────────────────────────────────────────────────────────
-    doc_filter = ""
     if document:
-        safe = document.replace("'", "''")
-        doc_filter = f"WHERE document_name = '{safe}'"
-    docs = execute_sql(
-        f"SELECT document_name, tipo_entidade, periodo, extracted_json "
-        f"FROM {RESULTS_TABLE} {doc_filter} ORDER BY document_name, periodo, tipo_entidade"
-    )
-    corrections_rows = execute_sql(
-        f"SELECT document_name, campo, valor_extraido, valor_correto, comentario "
-        f"FROM {CORRECTIONS_TABLE} {doc_filter} ORDER BY document_name, campo"
-    )
+        params = [{"name": "doc", "value": document}]
+        docs = execute_sql(
+            f"SELECT document_name, tipo_entidade, periodo, extracted_json "
+            f"FROM {RESULTS_TABLE} WHERE document_name = :doc ORDER BY document_name, periodo, tipo_entidade",
+            params,
+        )
+        corrections_rows = execute_sql(
+            f"SELECT document_name, campo, valor_extraido, valor_correto, comentario "
+            f"FROM {CORRECTIONS_TABLE} WHERE document_name = :doc ORDER BY document_name, campo",
+            params,
+        )
+    else:
+        docs = execute_sql(
+            f"SELECT document_name, tipo_entidade, periodo, extracted_json "
+            f"FROM {RESULTS_TABLE} ORDER BY document_name, periodo, tipo_entidade"
+        )
+        corrections_rows = execute_sql(
+            f"SELECT document_name, campo, valor_extraido, valor_correto, comentario "
+            f"FROM {CORRECTIONS_TABLE} ORDER BY document_name, campo"
+        )
 
     # Build correction index: (doc, campo) → row
     corr_index: dict[tuple, dict] = {}

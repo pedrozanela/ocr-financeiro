@@ -97,6 +97,10 @@ export default function MetricsDashboard() {
   const [selectedDoc, setSelectedDoc] = useState<string>('')
   const [validations, setValidations] = useState<ValidationSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [modelUpdating, setModelUpdating] = useState(false)
+  const [modelUpdateMsg, setModelUpdateMsg] = useState<string | null>(null)
+  const [reconciling, setReconciling] = useState(false)
+  const [reconcileMsg, setReconcileMsg] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -130,6 +134,42 @@ export default function MetricsDashboard() {
   const maxField = data ? Math.max(...data.by_field.map(r => parseInt(r.pendente || '0') + parseInt(r.confirmado || '0')), 1) : 1
   const maxType  = data ? Math.max(...data.by_type.map(r => parseInt(r.total) || 0), 1) : 1
 
+  async function handleUpdateModel() {
+    setModelUpdating(true)
+    setModelUpdateMsg(null)
+    try {
+      const res = await fetch('/api/admin/update-model', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setModelUpdateMsg(`Job disparado (run ${data.run_id}). Modelo será atualizado em ~10min.`)
+      } else {
+        setModelUpdateMsg(`Erro: ${data.detail || 'falha ao disparar'}`)
+      }
+    } catch {
+      setModelUpdateMsg('Erro de conexão')
+    } finally {
+      setModelUpdating(false)
+    }
+  }
+
+  async function handleReconcile() {
+    setReconciling(true)
+    setReconcileMsg(null)
+    try {
+      const res = await fetch('/api/admin/reconcile-corrections', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setReconcileMsg(`${data.resolved} correções resolvidas, ${data.still_pending} ainda pendentes.`)
+      } else {
+        setReconcileMsg(`Erro: ${data.detail || 'falha'}`)
+      }
+    } catch {
+      setReconcileMsg('Erro de conexão')
+    } finally {
+      setReconciling(false)
+    }
+  }
+
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
       <div className="flex items-start justify-between">
@@ -138,9 +178,42 @@ export default function MetricsDashboard() {
           <p className="text-xs text-gray-500 mt-0.5">
             {view === 'global' ? 'Visão consolidada de todos os documentos' : `Detalhes do documento: ${docData?.razao_social ?? selectedDoc}`}
           </p>
+          {modelUpdateMsg && <p className="text-xs text-amber-600 mt-1">{modelUpdateMsg}</p>}
+          {reconcileMsg && <p className="text-xs text-green-600 mt-1">{reconcileMsg}</p>}
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Admin actions */}
+          <button
+            disabled={modelUpdating}
+            onClick={handleUpdateModel}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+              modelUpdating
+                ? 'bg-amber-50 text-amber-300 border-amber-200 cursor-wait'
+                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+            }`}
+          >
+            <svg className={`w-3 h-3 ${modelUpdating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {modelUpdating ? 'Atualizando…' : 'Atualizar Modelo'}
+          </button>
+
+          <button
+            disabled={reconciling}
+            onClick={handleReconcile}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+              reconciling
+                ? 'bg-green-50 text-green-300 border-green-200 cursor-wait'
+                : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+            }`}
+          >
+            <svg className={`w-3 h-3 ${reconciling ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {reconciling ? 'Reconciliando…' : 'Reconciliar Correções'}
+          </button>
+
           {/* View selector */}
           <button
             onClick={() => setView('global')}
