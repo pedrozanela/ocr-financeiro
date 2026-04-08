@@ -97,6 +97,13 @@ PAGE_SIGNALS = {
         ["total do patrimonio liquido"],
         ["total do passivo e patrimônio"],
         ["total do passivo e patrimonio"],
+        # Balancete analítico (SPED): passivo não tem "total do passivo circulante" explícito
+        ["p a s s i v o"],
+        ["passivo", "circulante", "fornecedores"],
+        ["passivo", "circulante", "obrigações"],
+        ["passivo", "circulante", "obrigacoes"],
+        ["patrimônio líquido", "capital"],
+        ["patrimonio liquido", "capital"],
     ],
     "dre": [
         ["receita líquida",  "lucro bruto"],
