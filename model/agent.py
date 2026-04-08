@@ -171,15 +171,45 @@ class TechFinExtractorAgent(PythonModel):
         token = os.environ.get("DATABRICKS_TOKEN", "")
 
         if not token:
-            # automatic passthrough usa DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET
-            # config.authenticate() espera um callable (visitor), não um dict
             w = WorkspaceClient()
             host = host or w.config.host or ""
-            auth_headers = {}
-            w.config.authenticate(auth_headers.update)  # dict.update é callable
-            bearer = auth_headers.get("Authorization", "")
-            if bearer.startswith("Bearer "):
-                token = bearer[len("Bearer "):]
+
+            # Tenta obter token via múltiplas abordagens (compatibilidade entre versões do SDK)
+            # 1. w.config.token (PAT direto)
+            if not token and getattr(w.config, "token", None):
+                token = w.config.token
+
+            # 2. visitor pattern: config.authenticate(callable) — SDKs mais novos
+            if not token:
+                try:
+                    auth_headers = {}
+                    w.config.authenticate(auth_headers.update)
+                    bearer = auth_headers.get("Authorization", "")
+                    if bearer.startswith("Bearer "):
+                        token = bearer[len("Bearer "):]
+                except TypeError:
+                    pass
+
+            # 3. credentials_provider — SDKs intermediários
+            if not token:
+                try:
+                    provider = w.config.credentials_provider()
+                    if provider:
+                        creds = provider("GET", w.config.host)
+                        bearer = (creds or {}).get("Authorization", "")
+                        if bearer.startswith("Bearer "):
+                            token = bearer[len("Bearer "):]
+                except Exception:
+                    pass
+
+            # 4. oauth_token() — alguns SDKs expõem diretamente
+            if not token:
+                try:
+                    t = w.config.oauth_token()
+                    if t and getattr(t, "access_token", None):
+                        token = t.access_token
+                except Exception:
+                    pass
 
         if not token:
             raise RuntimeError(
