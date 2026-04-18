@@ -22,10 +22,14 @@ from mlflow.types.schema import Schema, ColSpec
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("endpoint_name", "extrator-financeiro")
+dbutils.widgets.text("secret_scope", "pedro-zanela-scope")
+dbutils.widgets.text("secret_key",   "techfin-ocr-pat")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 ENDPOINT_NAME = dbutils.widgets.get("endpoint_name")
+SECRET_SCOPE  = dbutils.widgets.get("secret_scope")
+SECRET_KEY    = dbutils.widgets.get("secret_key")
 UC_MODEL_NAME = f"{catalog}.{schema}.extrator_financeiro"
 
 mlflow.set_registry_uri("databricks-uc")
@@ -139,6 +143,8 @@ served_entity = ServedEntityInput(
     scale_to_zero_enabled=False,
     environment_vars={
         "DATABRICKS_HOST": _host,
+        # PAT para chamar outros serving endpoints (Claude Sonnet OCR, Opus judge)
+        "DATABRICKS_TOKEN": f"{{{{secrets/{SECRET_SCOPE}/{SECRET_KEY}}}}}",
     },
 )
 

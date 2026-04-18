@@ -171,45 +171,65 @@ class TechFinExtractorAgent(PythonModel):
         token = os.environ.get("DATABRICKS_TOKEN", "")
 
         if not token:
-            w = WorkspaceClient()
-            host = host or w.config.host or ""
-
-            # Tenta obter token via múltiplas abordagens (compatibilidade entre versões do SDK)
-            # 1. w.config.token (PAT direto)
-            if not token and getattr(w.config, "token", None):
-                token = w.config.token
-
-            # 2. visitor pattern: config.authenticate(callable) — SDKs mais novos
-            if not token:
+            # 1. OAuth M2M direto via HTTP — mais confiável que SDK, funciona em
+            # qualquer versão. Serving endpoints injetam automaticamente as env vars
+            # DATABRICKS_CLIENT_ID e DATABRICKS_CLIENT_SECRET.
+            client_id = os.environ.get("DATABRICKS_CLIENT_ID", "")
+            client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET", "")
+            if client_id and client_secret:
+                import requests as _rq
+                oauth_host = host or os.environ.get("DATABRICKS_HOST", "")
+                if oauth_host and not oauth_host.startswith("http"):
+                    oauth_host = f"https://{oauth_host}"
                 try:
-                    auth_headers = {}
-                    w.config.authenticate(auth_headers.update)
-                    bearer = auth_headers.get("Authorization", "")
-                    if bearer.startswith("Bearer "):
-                        token = bearer[len("Bearer "):]
-                except TypeError:
-                    pass
+                    r = _rq.post(
+                        f"{oauth_host.rstrip('/')}/oidc/v1/token",
+                        auth=(client_id, client_secret),
+                        data={"grant_type": "client_credentials", "scope": "all-apis"},
+                        timeout=30,
+                    )
+                    r.raise_for_status()
+                    token = r.json().get("access_token", "")
+                    host = oauth_host
+                except Exception as e:
+                    print(f"[agent] OAuth M2M direto falhou: {e}")
 
-            # 3. credentials_provider — SDKs intermediários
+            # 2. Fallbacks via SDK caso o método direto não funcione
             if not token:
-                try:
-                    provider = w.config.credentials_provider()
-                    if provider:
-                        creds = provider("GET", w.config.host)
-                        bearer = (creds or {}).get("Authorization", "")
+                w = WorkspaceClient()
+                host = host or w.config.host or ""
+
+                if getattr(w.config, "token", None):
+                    token = w.config.token
+
+                if not token:
+                    try:
+                        auth_headers = {}
+                        w.config.authenticate(auth_headers.update)
+                        bearer = auth_headers.get("Authorization", "")
                         if bearer.startswith("Bearer "):
                             token = bearer[len("Bearer "):]
-                except Exception:
-                    pass
+                    except TypeError:
+                        pass
 
-            # 4. oauth_token() — alguns SDKs expõem diretamente
-            if not token:
-                try:
-                    t = w.config.oauth_token()
-                    if t and getattr(t, "access_token", None):
-                        token = t.access_token
-                except Exception:
-                    pass
+                if not token:
+                    try:
+                        provider = w.config.credentials_provider()
+                        if provider:
+                            creds = provider("GET", w.config.host)
+                            bearer = (creds or {}).get("Authorization", "")
+                            if bearer.startswith("Bearer "):
+                                token = bearer[len("Bearer "):]
+                    except Exception:
+                        pass
+
+                if not token:
+                    try:
+                        t = w.config.oauth_token()
+                        if t and getattr(t, "access_token", None):
+                            token = t.access_token
+                    except Exception:
+                        pass
 
         if not token:
             raise RuntimeError(
@@ -314,7 +334,7 @@ class TechFinExtractorAgent(PythonModel):
         )
         try:
             response = client.chat.completions.create(
-                model=os.environ.get("JUDGE_MODEL", os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6")),
+                model=os.environ.get("JUDGE_MODEL", os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4")),
                 messages=[
                     {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
                     {"role": "user",   "content": user_msg},
@@ -397,7 +417,7 @@ class TechFinExtractorAgent(PythonModel):
         results = []
         for text in texts:
             response = client.chat.completions.create(
-                model=os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4-6"),
+                model=os.environ.get("OCR_MODEL", "databricks-claude-sonnet-4"),
                 messages=[
                     {"role": "system", "content": self._system_prompt()},
                     {"role": "user",   "content": self._user_prompt(text)},

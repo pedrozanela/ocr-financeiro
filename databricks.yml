@@ -25,6 +25,10 @@ variables:
     description: "Serverless Warehouse ID (pode ser o mesmo)"
   endpoint_name:
     default: "extrator-financeiro"
+  secret_scope:
+    default: "pedro-zanela-scope"
+  secret_key:
+    default: "techfin-ocr-pat"
 
 workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
@@ -88,6 +92,8 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               endpoint_name: ${var.endpoint_name}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED

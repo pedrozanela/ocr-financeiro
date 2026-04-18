@@ -6,6 +6,14 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install pikepdf --quiet
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 import json
 import time
 import requests
@@ -16,10 +24,12 @@ dbutils.widgets.text("catalog",      "")
 dbutils.widgets.text("schema",       "ocr_financeiro")
 dbutils.widgets.text("volume_path",  "")
 dbutils.widgets.text("endpoint",     "extrator-financeiro")
+dbutils.widgets.text("pdf_name",     "")
 _cat = dbutils.widgets.get("catalog")
 _sch = dbutils.widgets.get("schema")
 
 VOLUME_PATH     = dbutils.widgets.get("volume_path") or f"/Volumes/{_cat}/{_sch}/documentos_pdf"
+PDF_NAME_FILTER = dbutils.widgets.get("pdf_name").strip()
 RESULTS_TABLE   = f"{_cat}.{_sch}.resultados"
 FINAL_TABLE     = f"{_cat}.{_sch}.resultados_final"
 SOURCE_TABLE    = f"{_cat}.{_sch}.documentos"
@@ -49,9 +59,16 @@ print(f"Endpoint : {OCR_ENDPOINT}")
 volume_files = dbutils.fs.ls(VOLUME_PATH)
 volume_pdfs  = {f.name for f in volume_files if f.name.lower().endswith(".pdf")}
 processed    = {row["document_name"] for row in spark.sql(f"SELECT document_name FROM {RESULTS_TABLE}").collect()}
-new_pdfs     = sorted(volume_pdfs - processed)
 
-print(f"Volume: {len(volume_pdfs)} PDFs | Já processados: {len(processed)} | Novos: {len(new_pdfs)}")
+if PDF_NAME_FILTER:
+    # Modo single: processar apenas o PDF especificado (ex: disparado pelo upload da UI)
+    new_pdfs = [PDF_NAME_FILTER] if PDF_NAME_FILTER in volume_pdfs else []
+    print(f"Modo single: {PDF_NAME_FILTER}")
+else:
+    # Modo batch: processar todos os PDFs novos do volume
+    new_pdfs = sorted(volume_pdfs - processed)
+
+print(f"Volume: {len(volume_pdfs)} PDFs | Já processados: {len(processed)} | A processar: {len(new_pdfs)}")
 for name in new_pdfs:
     print(f"  • {name}")
 
@@ -64,25 +81,73 @@ if not new_pdfs:
 
 # COMMAND ----------
 
-def extract_text_ai_parse(pdf_name: str) -> tuple[str, int]:
-    """Extrai texto + nº de páginas via ai_parse_document."""
+def extract_text_ai_parse(pdf_name: str) -> tuple[str, int, bool]:
+    """Extrai texto + nº de páginas via ai_parse_document.
+    Retorna (text, num_pages, has_conversion_error).
+    has_conversion_error indica que ai_parse retornou error_status — típico de PDF
+    criptografado ou com restrições de extração."""
     volume_path = f"{VOLUME_PATH}/{pdf_name}"
     df = (
         spark.read.format("binaryFile").load(volume_path)
         .withColumn("parsed", expr("ai_parse_document(content)"))
         .withColumn("num_pages", expr("size(try_cast(parsed:document:pages AS ARRAY<VARIANT>))"))
+        .withColumn("has_error", expr("size(try_cast(parsed:error_status AS ARRAY<VARIANT>)) > 0"))
         .withColumn("text", concat_ws("\n\n", expr("""
             transform(
                 try_cast(parsed:document:elements AS ARRAY<VARIANT>),
                 element -> try_cast(element:content AS STRING)
             )
         """)))
-        .select("text", "num_pages")
+        .select("text", "num_pages", "has_error")
     )
     rows = df.collect()
     if not rows:
-        return "", 0
-    return rows[0]["text"] or "", int(rows[0]["num_pages"] or 0)
+        return "", 0, False
+    return rows[0]["text"] or "", int(rows[0]["num_pages"] or 0), bool(rows[0]["has_error"])
+
+
+def decrypt_pdf_in_volume(pdf_name: str) -> bool:
+    """Remove a criptografia/restrições do PDF no volume. Sobrescreve o arquivo.
+    Retorna True se conseguiu decrypt e gravar."""
+    import pikepdf
+    volume_path = f"/Volumes/{_cat}/{_sch}/documentos_pdf/{pdf_name}"
+    try:
+        with pikepdf.open(volume_path) as pdf:
+            # pikepdf remove encryption ao salvar sem argumentos de encryption
+            pdf.save(volume_path + ".decrypted.tmp")
+        # Rename atomically
+        import shutil
+        shutil.move(volume_path + ".decrypted.tmp", volume_path)
+        return True
+    except Exception as e:
+        print(f"    [decrypt] falhou: {e}")
+        return False
+
+
+def run_vision_fallback(pdf_name: str) -> bool:
+    """Dispara vision_extraction notebook para este PDF. Ele salva direto
+    em documentos + resultados, sem passar pelo fluxo do batch_job.
+    Retorna True se o notebook rodou com sucesso."""
+    try:
+        import os
+        # Resolve vision_extraction path (mesmo diretório deste notebook)
+        vision_path = "./vision_extraction"
+        result = dbutils.notebook.run(
+            vision_path,
+            timeout_seconds=1200,
+            arguments={
+                "pdf_name": pdf_name,
+                "catalog": _cat,
+                "schema": _sch,
+                "extractor_endpoint": OCR_ENDPOINT,
+                "volume_path": VOLUME_PATH,
+            },
+        )
+        print(f"    [vision fallback] OK — resultado: {result}")
+        return True
+    except Exception as e:
+        print(f"    [vision fallback] falhou: {e}")
+        return False
 
 
 def call_endpoint(text: str, max_retries: int = 3) -> tuple[list, int, int]:
@@ -203,15 +268,35 @@ def process_one(pdf_name: str) -> dict:
     try:
         # ai_parse_document
         t0 = time.time()
-        text, num_pages = extract_text_ai_parse(pdf_name)
+        text, num_pages, has_error = extract_text_ai_parse(pdf_name)
         doc_stat["time_parse_s"] = round(time.time() - t0, 1)
         with print_lock:
             print(f"  [{pdf_name}] ai_parse: {num_pages} pág em {doc_stat['time_parse_s']}s")
 
-        if not text or not text.strip():
-            doc_stat["error_msg"] = "no_text"
+        # Fallback 1: ai_parse retornou texto vazio ou erro de conversão → tentar decrypt + retry
+        if (not text or not text.strip() or has_error):
             with print_lock:
-                print(f"  [{pdf_name}] ⚠ Sem texto extraível")
+                print(f"  [{pdf_name}] ai_parse falhou (texto vazio ou conversion error) — tentando decrypt...")
+            if decrypt_pdf_in_volume(pdf_name):
+                with print_lock:
+                    print(f"  [{pdf_name}] decrypt OK, retentando ai_parse...")
+                text, num_pages, has_error = extract_text_ai_parse(pdf_name)
+                with print_lock:
+                    print(f"  [{pdf_name}] ai_parse pós-decrypt: {num_pages} pág | has_error={has_error}")
+
+        # Fallback 2: ainda falhou → usar Vision OCR (vision_extraction notebook)
+        if (not text or not text.strip() or has_error):
+            with print_lock:
+                print(f"  [{pdf_name}] fallback para Vision OCR...")
+            if run_vision_fallback(pdf_name):
+                # vision_extraction salva direto em resultados + documentos — sucesso
+                doc_stat["status"]    = "success"
+                doc_stat["error_msg"] = "via_vision_ocr"
+                doc_stat["time_parse_s"] = round(time.time() - doc_start, 1)
+                return doc_stat
+            doc_stat["error_msg"] = "no_text_after_fallbacks"
+            with print_lock:
+                print(f"  [{pdf_name}] ⚠ Sem texto mesmo após decrypt + Vision OCR")
             return doc_stat
 
         # Salvar texto na tabela documentos

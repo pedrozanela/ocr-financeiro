@@ -57,11 +57,11 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         print(f"[upload] WARNING: could not delete existing result for {document_name}: {e}")
 
-    # 3. Trigger the batch_job to process the new PDF
+    # 3. Trigger the batch_job to process only this PDF
     try:
         job_id = _get_batch_job_id(client)
         print(f"[upload] Triggering batch job {job_id} for {document_name}")
-        run = client.jobs.run_now(job_id=job_id)
+        run = client.jobs.run_now(job_id=job_id, notebook_params={"pdf_name": document_name})
         _runs[document_name] = run.run_id
         print(f"[upload] Job run {run.run_id} started for {document_name}")
     except Exception as e:
