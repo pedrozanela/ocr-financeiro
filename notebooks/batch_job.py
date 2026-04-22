@@ -322,7 +322,17 @@ def process_one(pdf_name: str) -> dict:
 
         valid   = [r for r in results if not (isinstance(r, dict) and r.get("error"))]
         errored = [r for r in results if isinstance(r, dict) and r.get("error")]
+
+        # Fallback 3: extrator retornou tudo erro — indicativo de texto-lixo do ai_parse.
+        # Tenta Vision OCR como recuperação (bypassa ai_parse totalmente).
         if errored and not valid:
+            with print_lock:
+                print(f"  [{pdf_name}] extrator retornou tudo erro — tentando Vision OCR...")
+            if run_vision_fallback(pdf_name):
+                doc_stat["status"]    = "success"
+                doc_stat["error_msg"] = "via_vision_ocr_after_extractor_fail"
+                doc_stat["time_total_s"] = round(time.time() - doc_start, 1)
+                return doc_stat
             raise ValueError(f"parse_failed: {errored[0].get('raw','')[:200]}")
 
         save_result(pdf_name, valid)
