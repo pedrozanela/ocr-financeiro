@@ -179,7 +179,7 @@ resources:
         timezone_id: "America/Sao_Paulo"
         pause_status: PAUSED
 
-    # ── Vision OCR — Modo Performance ─────────────────────────────────────────
+    # ── Vision OCR — Modo Vision ──────────────────────────────────────────────
     vision_extraction:
       name: "ocr-financeiro-vision-extraction"
       tasks:
@@ -195,19 +195,6 @@ resources:
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
-        - task_key: initial_extraction
-          depends_on:
-            - task_key: register
-          notebook_task:
-            notebook_path: ./notebooks/batch_job.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              volume_path: /Volumes/${var.catalog}/${var.schema}/documentos_pdf
-              endpoint: ${var.endpoint_name}
-            source: WORKSPACE
-          environment_key: default
-      performance_target: STANDARD
       environments:
         - environment_key: default
           spec:
