@@ -76,7 +76,8 @@ def reprocess_document(document_name: str):
             [{"name": "name", "value": document_name}],
         )
         job_id = _get_batch_job_id(client)
-        run = client.jobs.run_now(job_id=job_id)
+        # Passa pdf_name para processar APENAS este documento (modo single)
+        run = client.jobs.run_now(job_id=job_id, notebook_params={"pdf_name": document_name})
         _runs[document_name] = run.run_id
         return {"document_name": document_name, "status": "processing", "run_id": run.run_id}
     except Exception as e:

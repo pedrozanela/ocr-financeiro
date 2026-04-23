@@ -78,6 +78,7 @@ print(f"Extractor endpoint: {EXTRACTOR_ENDPOINT}")
 
 PAGE_SIGNALS = {
     "bp_ativo": [
+        # Português
         ["total do ativo circulante"],
         ["total ativo circulante"],
         ["balanço patrimonial", "ativo circulante"],
@@ -88,9 +89,16 @@ PAGE_SIGNALS = {
         ["ativo", "não circulante", "imobilizado"],
         ["ativo", "nao circulante", "imobilizado"],
         ["total do ativo"],
-        ["total do ativo"],
+        # English — relatórios em inglês (multinacionais, subsidiárias)
+        ["total current assets"],
+        ["current assets", "non-current assets"],
+        ["current assets", "total assets"],
+        ["balance sheet", "current assets"],
+        ["statement of financial position", "assets"],
+        ["total assets"],
     ],
     "bp_passivo": [
+        # Português
         ["total do passivo circulante"],
         ["total passivo circulante"],
         ["total do patrimônio líquido"],
@@ -104,11 +112,26 @@ PAGE_SIGNALS = {
         ["passivo", "circulante", "obrigacoes"],
         ["patrimônio líquido", "capital"],
         ["patrimonio liquido", "capital"],
+        # English
+        ["total current liabilities"],
+        ["current liabilities", "non-current liabilities"],
+        ["total liabilities", "shareholders equity"],
+        ["total liabilities", "stockholders equity"],
+        ["total liabilities and equity"],
+        ["shareholders' equity"],
     ],
     "dre": [
+        # Português
         ["receita líquida",  "lucro bruto"],
         ["receita liquida",  "lucro bruto"],
         ["receita bruta",    "lucro bruto"],
+        # English
+        ["net revenue", "gross profit"],
+        ["revenue", "cost of sales", "gross profit"],
+        ["income statement"],
+        ["statement of income"],
+        ["statement of operations"],
+        ["profit and loss"],
     ],
     "oci": [
         ["total dos resultados abrangentes"],

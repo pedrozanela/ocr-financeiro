@@ -180,7 +180,7 @@ export default function App() {
             <div className="flex items-center gap-2 bg-blue-400/20 rounded-lg px-3 py-2">
               <div className="w-3 h-3 border border-blue-300/50 border-t-blue-200 rounded-full animate-spin shrink-0" />
               <p className="text-xs text-blue-200">
-                {uploadingPerf ? 'Modo Performance… pode levar 4-6 min' : 'Extraindo dados… pode levar 2-4 min'}
+                {uploadingPerf ? 'Modo Vision… pode levar 4-6 min' : 'Extraindo dados… pode levar 2-4 min'}
               </p>
             </div>
           )}
@@ -205,7 +205,7 @@ export default function App() {
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            {uploadingPerf ? 'Processando…' : 'Enviar PDF — Modo Performance'}
+            {uploadingPerf ? 'Processando…' : 'Enviar PDF — Modo Vision'}
             <input type="file" accept=".pdf" className="hidden" onChange={handleUploadPerformance} disabled={uploading || uploadingPerf} />
           </label>
 

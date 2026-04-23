@@ -106,6 +106,72 @@ def extract_text_ai_parse(pdf_name: str) -> tuple[str, int, bool]:
     return rows[0]["text"] or "", int(rows[0]["num_pages"] or 0), bool(rows[0]["has_error"])
 
 
+# Markers (PT + EN) para identificar seções financeiras no texto do ai_parse.
+# Usado quando o texto é muito grande para caber no contexto do extrator.
+_FINANCIAL_SECTION_MARKERS = [
+    # Balanço Patrimonial
+    "BALANÇO PATRIMONIAL", "BALANCO PATRIMONIAL", "Balanço Patrimonial", "Balanco Patrimonial",
+    "Balanços Patrimoniais", "Balancos Patrimoniais",
+    "BALANCE SHEET", "Balance Sheet", "Balance sheet",
+    "STATEMENT OF FINANCIAL POSITION", "Statement of Financial Position",
+    "ATIVO CIRCULANTE", "Ativo Circulante", "Ativo circulante",
+    "CURRENT ASSETS", "Current assets", "Current Assets",
+    # DRE
+    "DEMONSTRAÇÃO DO RESULTADO", "DEMONSTRACAO DO RESULTADO",
+    "Demonstração do Resultado", "Demonstracao do Resultado",
+    "Demonstrações do Resultado", "Demonstracoes do Resultado",
+    "INCOME STATEMENT", "Income Statement", "Income statement",
+    "STATEMENT OF INCOME", "Statement of Income",
+    "PROFIT AND LOSS", "Profit and Loss", "Profit & Loss",
+    "STATEMENT OF OPERATIONS", "Statement of Operations",
+    "RECEITA OPERACIONAL", "Receita Operacional",
+    "LUCRO BRUTO", "Lucro Bruto", "GROSS PROFIT", "Gross Profit",
+]
+
+
+MAX_TEXT_FOR_EXTRACTOR = 300_000  # Limite prático antes de filtrar ou fallback
+
+def filter_financial_sections(text: str) -> str:
+    """Extrai seções financeiras do texto quando muito grande para o extrator.
+
+    Procura markers de BP/DRE (PT + EN). Se encontrar, retorna o trecho desde
+    o primeiro marker até o último + buffer — tipicamente reduz 1M chars para
+    ~100k chars do conteúdo relevante. Se não encontrar markers, retorna o
+    texto original (caller decide se trunca ou faz fallback).
+    """
+    if len(text) <= MAX_TEXT_FOR_EXTRACTOR:
+        return text
+
+    text_upper = text.upper()
+    # Encontra todas as posições dos markers
+    positions = []
+    for marker in _FINANCIAL_SECTION_MARKERS:
+        m_upper = marker.upper()
+        start = 0
+        while True:
+            pos = text_upper.find(m_upper, start)
+            if pos < 0:
+                break
+            positions.append(pos)
+            start = pos + len(m_upper)
+
+    if not positions:
+        # Nenhum marker — retorna texto original, caller trata
+        return text
+
+    # Pega do primeiro marker até o último + buffer, limitado ao tamanho máximo
+    positions.sort()
+    first = max(0, positions[0] - 2000)  # buffer para contexto antes do BP
+    last = min(len(text), positions[-1] + 30000)  # buffer generoso após último marker
+    filtered = text[first:last]
+
+    # Se ainda grande demais, trunca mas mantém começo (onde tá BP/DRE)
+    if len(filtered) > MAX_TEXT_FOR_EXTRACTOR:
+        filtered = filtered[:MAX_TEXT_FOR_EXTRACTOR]
+
+    return filtered
+
+
 def decrypt_pdf_in_volume(pdf_name: str) -> bool:
     """Remove a criptografia/restrições do PDF no volume. Sobrescreve o arquivo.
     Retorna True se conseguiu decrypt e gravar."""
@@ -315,10 +381,21 @@ def process_one(pdf_name: str) -> dict:
                 VALUES ('{doc_esc}', '{text_esc}', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(), '{CURRENT_USER}')
         """)
 
+        # Filtro de seções financeiras: se o texto do ai_parse é muito grande,
+        # tenta extrair apenas as seções de BP/DRE via markers PT/EN.
+        # Evita estourar o contexto do Claude em PDFs grandes (ex: relatório anual 250+ pág).
+        text_for_endpoint = text
+        if len(text) > MAX_TEXT_FOR_EXTRACTOR:
+            filtered = filter_financial_sections(text)
+            if filtered is not text and len(filtered) < len(text):
+                with print_lock:
+                    print(f"  [{pdf_name}] texto grande ({len(text):,} chars) — filtrado para {len(filtered):,} chars via markers financeiros")
+                text_for_endpoint = filtered
+
         # Endpoint OCR
         t0 = time.time()
         try:
-            results, input_tokens, output_tokens = call_endpoint(text)
+            results, input_tokens, output_tokens = call_endpoint(text_for_endpoint)
         except Exception as e:
             # Fallback 3a: chamada ao endpoint falhou por completo (ex: texto muito
             # grande estourando o context do Claude, timeout, etc). Tenta Vision OCR
