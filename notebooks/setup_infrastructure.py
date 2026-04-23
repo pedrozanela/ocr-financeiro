@@ -71,7 +71,8 @@ spark.sql(f"""
         moeda STRING,
         escala_valores STRING,
         processado_em TIMESTAMP,
-        modelo_versao STRING
+        modelo_versao STRING,
+        modo_extracao STRING
     ) USING DELTA
     TBLPROPERTIES (
         'delta.columnMapping.mode' = 'name',
@@ -79,6 +80,11 @@ spark.sql(f"""
         'delta.minWriterVersion' = '5'
     )
 """)
+# Migração idempotente para ambientes existentes (adiciona coluna se não existir)
+try:
+    spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados ADD COLUMN modo_extracao STRING")
+except Exception:
+    pass  # coluna já existe
 print("Tabela resultados OK")
 
 # COMMAND ----------

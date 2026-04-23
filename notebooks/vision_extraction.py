@@ -303,15 +303,16 @@ def save_result(pdf_name: str, results: list, v_in: int, v_out: int):
                 moeda              = '{moe}',
                 escala_valores     = '{escv}',
                 processado_em      = CURRENT_TIMESTAMP(),
-                modelo_versao      = '{mv}'
+                modelo_versao      = '{mv}',
+                modo_extracao      = 'vision'
             WHEN NOT MATCHED THEN INSERT
                 (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
                  token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
-                 processado_em, modelo_versao)
+                 processado_em, modelo_versao, modo_extracao)
             VALUES
                 ('{doc}', '{te}', '{per}', '{ej}', '{aj}',
                  '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
-                 CURRENT_TIMESTAMP(), '{mv}')
+                 CURRENT_TIMESTAMP(), '{mv}', 'vision')
         """)
 
 

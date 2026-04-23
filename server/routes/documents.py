@@ -29,7 +29,8 @@ def list_documents():
 def get_document(document_name: str):
     rows = execute_sql(
         f"""SELECT document_name, tipo_entidade, periodo, extracted_json, assessment_json,
-                CAST(processado_em AS STRING) AS processado_em, COALESCE(modelo_versao, '') AS modelo_versao
+                CAST(processado_em AS STRING) AS processado_em, COALESCE(modelo_versao, '') AS modelo_versao,
+                COALESCE(modo_extracao, '') AS modo_extracao
             FROM {RESULTS_TABLE}
             WHERE document_name = :name
             ORDER BY tipo_entidade, periodo DESC""",
@@ -52,6 +53,7 @@ def get_document(document_name: str):
             "assessment": assessment,
             "processado_em": row.get("processado_em"),
             "modelo_versao": row.get("modelo_versao"),
+            "modo_extracao": row.get("modo_extracao"),
         })
 
     return {

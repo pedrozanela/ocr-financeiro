@@ -1,9 +1,28 @@
 import json
-from fastapi import APIRouter
+import os
+from fastapi import APIRouter, HTTPException
 from ..db import execute_sql, execute_update
 from ..config import get_client, FEWSHOT_JOB_ID, CORRECTIONS_TABLE, RESULTS_TABLE
 
 router = APIRouter()
+
+
+@router.get("/rules")
+def get_classification_rules():
+    """Retorna as regras de classificação usadas pelo modelo de extração.
+    Permite ao usuário entender o racional por trás das classificações feitas
+    pelo modelo e acompanhar mudanças de regras ao longo do tempo."""
+    # O arquivo fica em model/regras_classificacao.json relativo à raiz do projeto
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(base, "model", "regras_classificacao.json")
+    try:
+        with open(path) as f:
+            rules = json.load(f)
+        return {"rules": rules, "total": len(rules)}
+    except FileNotFoundError:
+        raise HTTPException(404, "Arquivo de regras não encontrado")
+    except json.JSONDecodeError as e:
+        raise HTTPException(500, f"Erro ao ler regras: {e}")
 
 
 @router.post("/admin/update-model")

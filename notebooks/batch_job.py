@@ -190,13 +190,16 @@ def get_nested(d: dict, path: str):
     return d
 
 
-def save_result(pdf_name: str, results: list):
-    """Salva resultados em `resultados` via MERGE com todas as colunas."""
+def save_result(pdf_name: str, results: list, modo_extracao: str = "ai_parse"):
+    """Salva resultados em `resultados` via MERGE com todas as colunas.
+    modo_extracao: 'ai_parse' (fluxo padrão via ai_parse_document) ou 'vision'
+    (via Vision OCR, seja pelo modo performance ou fallback)."""
     if isinstance(results, dict):
         results = [results]
 
     def esc(v): return str(v or "").replace("'", "''")
     doc = pdf_name.replace("'", "''")
+    modo = modo_extracao.replace("'", "''")
 
     for result in results:
         result = dict(result)
@@ -233,15 +236,16 @@ def save_result(pdf_name: str, results: list):
                 moeda              = '{moe}',
                 escala_valores     = '{escv}',
                 processado_em      = CURRENT_TIMESTAMP(),
-                modelo_versao      = '{OCR_ENDPOINT}'
+                modelo_versao      = '{OCR_ENDPOINT}',
+                modo_extracao      = '{modo}'
             WHEN NOT MATCHED THEN INSERT
                 (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
                  token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
-                 processado_em, modelo_versao)
+                 processado_em, modelo_versao, modo_extracao)
             VALUES
                 ('{doc}', '{te}', '{per}', '{ej}', '{aj}',
                  '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
-                 CURRENT_TIMESTAMP(), '{OCR_ENDPOINT}')
+                 CURRENT_TIMESTAMP(), '{OCR_ENDPOINT}', '{modo}')
         """)
 
 # COMMAND ----------
@@ -313,7 +317,21 @@ def process_one(pdf_name: str) -> dict:
 
         # Endpoint OCR
         t0 = time.time()
-        results, input_tokens, output_tokens = call_endpoint(text)
+        try:
+            results, input_tokens, output_tokens = call_endpoint(text)
+        except Exception as e:
+            # Fallback 3a: chamada ao endpoint falhou por completo (ex: texto muito
+            # grande estourando o context do Claude, timeout, etc). Tenta Vision OCR
+            # que filtra apenas as páginas financeiras do PDF.
+            with print_lock:
+                print(f"  [{pdf_name}] endpoint falhou ({type(e).__name__}: {str(e)[:120]}) — Vision OCR...")
+            if run_vision_fallback(pdf_name):
+                doc_stat["status"]    = "success"
+                doc_stat["error_msg"] = f"via_vision_ocr_after_endpoint_error ({len(text)} chars)"
+                doc_stat["time_total_s"] = round(time.time() - doc_start, 1)
+                return doc_stat
+            raise
+
         doc_stat["time_llm_s"]    = round(time.time() - t0, 1)
         doc_stat["input_tokens"]  = input_tokens
         doc_stat["output_tokens"] = output_tokens
@@ -323,7 +341,7 @@ def process_one(pdf_name: str) -> dict:
         valid   = [r for r in results if not (isinstance(r, dict) and r.get("error"))]
         errored = [r for r in results if isinstance(r, dict) and r.get("error")]
 
-        # Fallback 3: extrator retornou tudo erro — indicativo de texto-lixo do ai_parse.
+        # Fallback 3b: extrator retornou tudo erro — indicativo de texto-lixo do ai_parse.
         # Tenta Vision OCR como recuperação (bypassa ai_parse totalmente).
         if errored and not valid:
             with print_lock:

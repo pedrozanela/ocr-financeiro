@@ -36,18 +36,18 @@
   },
   {
     "id": 8,
-    "titulo": "Provisão IRPJ e CSLL — separar em dois campos",
-    "regra": "O campo `dre.provisao_imposto_de_renda` deve conter a soma de IRPJ corrente + diferido. O campo `dre.csll` deve conter a soma de CSLL corrente + diferida. Quando o documento apresenta 'IRPJ e CSLL' em uma única linha, atribuir o valor inteiro ao campo `dre.provisao_imposto_de_renda` e zero ao `dre.csll`."
+    "titulo": "Provisão IRPJ e CSLL — convenção de sinal para a cascata do LL",
+    "regra": "O campo `dre.provisao_imposto_de_renda` deve representar a DESPESA LÍQUIDA de IR (valor efetivamente DEDUZIDO do LAIR para chegar no Lucro Líquido), não a soma algébrica com sinais naturais do documento. Convenção de sinal (OBRIGATÓRIO): POSITIVO quando há despesa líquida de IR (paga imposto); NEGATIVO quando há crédito líquido (reversão/diferido maior que corrente). Exemplo prático: doc mostra 'IR corrente (57.456)' + 'IR diferido 96.724'. A despesa líquida é 57.456 − 96.724 = −39.268 (crédito líquido). Grave `provisao_imposto_de_renda = -39.268`, NUNCA +39.268. Verifique via cascata (Regra 12): lucro_liquido = lucro_antes_imposto_de_renda − provisao_imposto_de_renda − csll. Se não bater, o sinal está errado. Mesma convenção vale para `dre.csll`: POSITIVO = despesa, NEGATIVO = crédito. Quando doc apresenta 'IRPJ e CSLL' em linha única, atribuir o valor inteiro (com sinal correto) ao `dre.provisao_imposto_de_renda` e zero ao `dre.csll`."
   },
   {
     "id": 9,
-    "titulo": "C/C Sócios — incluir Empréstimos a/de sócios e partes relacionadas",
-    "regra": "Valores de 'Empréstimos a sócios', 'Empréstimos de sócios', 'Mútuo com partes relacionadas', 'Contas a receber de partes relacionadas' devem ser classificados nos campos `conta_corrente_socios_control_colig` (AC ou ANC conforme o prazo). 'Empréstimos a terceiros' sem vínculo com sócios ou coligadas devem ir em `outros_ativos_circulantes` (CP) ou `outros_realizavel_a_longo_prazo` (LP)."
+    "titulo": "C/C Sócios — incluir TODOS os Empréstimos a Receber (exceto empregados)",
+    "regra": "Classificar em `conta_corrente_socios_control_colig` (AC ou ANC conforme prazo): 'Empréstimos a sócios', 'Empréstimos de sócios', 'Mútuo com partes relacionadas', 'Contas a receber de partes relacionadas' e também 'Empréstimos a Receber' quando aparece como categoria do balanço (mesmo que subitens digam 'de Terceiros' — o termo contábil genérico no Brasil frequentemente representa partes relacionadas). EXCEÇÕES que vão em `outros_ativos_circulantes` (CP) ou `outros_realizavel_a_longo_prazo` (LP): 'Empréstimos a Empregados/Funcionários' explícitos, adiantamentos de salário. Quando a categoria é explicitamente 'Empréstimos a Funcionários' (diferente de 'a Terceiros'), vai em outros."
   },
   {
     "id": 10,
     "titulo": "Receitas/Despesas não-operacionais → campos próprios na DRE",
-    "regra": "Receitas não operacionais devem ir em `dre.receita_nao_operacional`. Despesas não operacionais devem ir em `dre.despesa_nao_operacional`. Resultado Extraordinário Operacional deve ir no campo mais adequado entre receita ou despesa não operacional."
+    "regra": "Receitas não operacionais devem ir em `dre.receita_nao_operacional`. Despesas não operacionais devem ir em `dre.despesa_nao_operacional`. Identificação: se um item aparece DEPOIS do LUCRO OPERACIONAL na cascata do documento (ou seja, entre lucro_operacional e resultado_antes_imposto_renda), é NÃO-OPERACIONAL — vai em receita_nao_operacional ou despesa_nao_operacional conforme o sinal. ATENÇÃO ESPECIAL: blocos chamados 'OUTRAS RECEITAS E DESPESAS' (plural) que aparecem após despesas operacionais/financeiras são NÃO-OPERACIONAIS — NUNCA coloque em `outras_receitas_despesas_operacionais` (esse campo é reservado para itens dentro do bloco de despesas operacionais). Itens típicos não-operacionais: perdas por inventário, ganho/perda na venda de ativos, bonificações/doações/brindes, resultados extraordinários. Resultado Extraordinário Operacional deve ir no campo mais adequado entre receita ou despesa não operacional."
   },
   {
     "id": 11,
@@ -93,5 +93,10 @@
     "id": 18,
     "titulo": "Depreciação — subtrair SOMENTE do Imobilizado bruto, nunca do Intangível",
     "regra": "Quando o documento lista Imobilizado, Intangível e Depreciação como linhas separadas, a Depreciação deve ser subtraída SOMENTE do Imobilizado bruto para obter o Imobilizado líquido. O Intangível permanece no seu próprio campo (`ativo_permanente.intangivel_diferido`) com o valor original. NUNCA some Imobilizado + Intangível antes de subtrair a Depreciação. Exemplo correto: Imobilizado 44.204 − Depreciação 13.703 = Imobilizado líquido 30.501; Intangível = 133 (separado). Exemplo ERRADO: (44.204 + 133) − 13.703 = 30.634 como imobilizado, depois 133 como intangível novamente — isso duplica o Intangível. Ver também Regra 14, que define imobilizado e intangível como campos distintos do Ativo Permanente."
+  },
+  {
+    "id": 20,
+    "titulo": "Adiantamentos no Ativo Circulante — APENAS Adiantamento a Fornecedores",
+    "regra": "O campo `ativo_circulante.adiantamentos` aceita EXCLUSIVAMENTE itens cujo texto contém explicitamente a palavra 'Fornecedor' no nome (ex: 'Adiantamento a Fornecedores', 'Adiantamentos a Fornecedores Nacionais', 'Adiantamentos a Fornecedores Internacionais'). Todos os demais adiantamentos do AC devem ir em `ativo_circulante.outros_ativos_circulantes`, incluindo: 'Adiantamento 13º Salário', 'Adiantamento Férias', 'Adiantamento de Salários', 'Adiantamentos a Empregados', 'Adiantamentos a Funcionários', 'Adiantamentos de Rescisões', 'Adiantamento de Importação' (mesmo sendo conceitualmente a fornecedor, NÃO tem 'fornecedor' no nome), 'Adiantamento de Viagem', adiantamentos de tributos, etc. PROIBIDO: somar todos os tipos de adiantamentos e jogar no campo `adiantamentos`. A classificação é feita pelo NOME EXATO do item — se não contém 'Fornecedor', vai em outros. A mesma lógica se aplica ao ANC (`ativo_nao_circulante.adiantamentos` apenas para 'Adiantamento a Fornecedores LP')."
   }
 ]

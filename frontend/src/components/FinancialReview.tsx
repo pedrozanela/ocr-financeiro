@@ -3,6 +3,7 @@ import FieldSection from './FieldSection'
 import FontesPanel from './FontesPanel'
 import OcrTextPanel from './OcrTextPanel'
 import PontosDeAtencao from './PontosDeAtencao'
+import RulesPanel from './RulesPanel'
 import { SECTIONS } from './fieldDefinitions'
 
 interface Props {
@@ -37,6 +38,7 @@ interface DocRecord {
   assessment?: AssessmentItem[]
   processado_em?: string | null
   modelo_versao?: string | null
+  modo_extracao?: string | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,6 +67,7 @@ const TAB_ICONS: Record<string, string> = {
   'Fontes': 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
   'Texto OCR': 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
   'Pontos de Atenção': 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
+  'Regras': 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
 }
 
 // Toast component
@@ -272,12 +275,14 @@ export default function FinancialReview({ documentName }: Props) {
   const FONTES_TAB = SECTIONS.length
   const OCR_TAB    = SECTIONS.length + 1
   const PONTOS_TAB = SECTIONS.length + 2
+  const REGRAS_TAB = SECTIONS.length + 3
 
   const tabs = [
     ...SECTIONS.map((s, i) => ({ label: s.label, count: sectionCounts[i] })),
     { label: 'Fontes', count: 0 },
     { label: 'Texto OCR', count: 0 },
     { label: 'Pontos de Atenção', count: 0 },
+    { label: 'Regras', count: 0 },
   ]
 
   const pdfUrl   = `/api/documents/${encodeURIComponent(documentName)}/pdf`
@@ -336,6 +341,20 @@ export default function FinancialReview({ documentName }: Props) {
                 {current.processado_em && (
                   <span className="text-xs text-gray-500">
                     <span className="text-gray-400 font-medium mr-1">Processado</span>{new Date(current.processado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+                {current.modo_extracao && (
+                  <span
+                    className={
+                      current.modo_extracao === 'vision'
+                        ? 'inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700'
+                        : 'inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700'
+                    }
+                    title={current.modo_extracao === 'vision'
+                      ? 'Processado via Vision OCR (Claude Sonnet Vision)'
+                      : 'Processado via ai_parse_document (modo padrão)'}
+                  >
+                    {current.modo_extracao === 'vision' ? '⚡ Vision OCR' : '📄 ai_parse'}
                   </span>
                 )}
               </div>
@@ -457,7 +476,9 @@ export default function FinancialReview({ documentName }: Props) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === PONTOS_TAB ? (
+          {activeTab === REGRAS_TAB ? (
+            <RulesPanel />
+          ) : activeTab === PONTOS_TAB ? (
             <PontosDeAtencao records={[current]} />
           ) : activeTab === OCR_TAB ? (
             <OcrTextPanel documentName={documentName} />

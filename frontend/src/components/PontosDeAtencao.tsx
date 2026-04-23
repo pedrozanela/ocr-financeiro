@@ -37,8 +37,11 @@ function fmtN(v: number): string {
 }
 
 function diffPct(a: number, b: number): number {
+  const diff = Math.abs(a - b)
+  // Diferenças absolutas ≤ 1 são ruído de arredondamento (comum em docs em milhares)
+  if (diff <= 1) return 0
   const base = Math.max(Math.abs(a), Math.abs(b), 1)
-  return (Math.abs(a - b) / base) * 100
+  return (diff / base) * 100
 }
 
 const TOL = 0.01
@@ -57,8 +60,8 @@ const VALIDATIONS: Validation[] = [
     },
   },
   {
-    label: 'Lucro Líquido → Lucros/Prejuízos Acumulados no PL',
-    description: 'O resultado da DRE deve ser transferido para o PL.',
+    label: 'Lucro Líquido refletido em Lucros Acumulados ou Reservas de Lucro',
+    description: 'O LL do exercício costuma estar "dentro" do valor de Lucros/Prejuízos Acumulados ou Reservas de Lucro informado no documento — não precisa ser igual. Apenas alertamos quando ambos estão zerados mas há LL.',
     category: 'Balanço',
     check: (data) => {
       const ll = n(data, 'dre.lucro_liquido')
@@ -228,6 +231,22 @@ const VALIDATIONS: Validation[] = [
     },
   },
   {
+    label: 'Consistência interna de Despesas Operacionais',
+    description: 'Total das despesas operacionais deve ser igual à soma dos sub-itens.',
+    category: 'DRE',
+    check: (data) => {
+      const total = n(data, 'dre.total_despesas_operacionais')
+      if (total === 0) return { status: 'info', details: 'Despesas Operacionais zeradas' }
+      const sum = n(data, 'dre.despesas_com_vendas') + n(data, 'dre.provisao_para_devedores_duvidosos')
+        + n(data, 'dre.outras_receitas_despesas_operacionais') + n(data, 'dre.despesas_administrativas')
+        + n(data, 'dre.despesas_tributarias') + n(data, 'dre.despesas_gerais')
+        + n(data, 'dre.depreciacao') + n(data, 'dre.amortizacao')
+      const pct = diffPct(total, sum)
+      if (pct > TOL) return { status: 'warning', details: `Soma: ${fmtN(sum)} | Total: ${fmtN(total)} | Dif: ${pct.toFixed(2)}%` }
+      return { status: 'ok', details: `Total: ${fmtN(total)} ✓` }
+    },
+  },
+  {
     label: 'DRE: Despesas Financeiras = Encargos + Descontos + Variação Cambial',
     description: 'Total de despesas financeiras deve ser a soma dos sub-itens.',
     category: 'DRE',
@@ -237,13 +256,36 @@ const VALIDATIONS: Validation[] = [
       const enc = n(data, 'dre.encargos_financeiros'), desc = n(data, 'dre.descontos_concedidos'), vc = n(data, 'dre.variacao_cambial_nao_paga')
       if (enc === 0 && desc === 0 && vc === 0) return { status: 'info', details: 'Sub-itens zerados (não detalhado)' }
       const sum = enc + desc + vc, pct = diffPct(total, sum)
-      if (pct > TOL) return { status: 'warning', details: `Soma: ${fmtN(sum)} | DespFin: ${fmtN(total)} | Dif: ${pct.toFixed(2)}%` }
-      return { status: 'ok', details: `Despesas Financeiras: ${fmtN(total)} ✓` }
+      if (pct <= TOL) return { status: 'ok', details: `Despesas Financeiras: ${fmtN(total)} ✓` }
+      // Total é a fonte de verdade. Decomposição parcial (sum < total) é
+      // comum quando itens como 'Tarifas Bancárias' não têm sub-campo dedicado.
+      // Só alerta como warning quando sum > total (double counting).
+      if (sum < total) {
+        return { status: 'info', details: `Total: ${fmtN(total)} | Decomposição parcial (${fmtN(sum)}) — itens sem sub-campo dedicado` }
+      }
+      return { status: 'warning', details: `Soma: ${fmtN(sum)} | DespFin: ${fmtN(total)} | Dif: ${pct.toFixed(2)}% (possível double count)` }
     },
   },
   {
-    label: 'DRE: LAIR = EBIT + Resultado Financeiro + Equivalência',
-    description: 'LAIR deve ser EBIT mais/menos resultado financeiro e equivalência patrimonial.',
+    label: 'DRE: Receitas Financeiras = Receitas financeiras + Variação cambial não recebida',
+    description: 'Total de receitas financeiras deve ser a soma dos sub-itens.',
+    category: 'DRE',
+    check: (data) => {
+      const total = n(data, 'dre.total_receitas_financeiras')
+      if (total === 0) return { status: 'info', details: 'Receitas Financeiras zeradas' }
+      const rec = n(data, 'dre.receitas_financeiras'), vc = n(data, 'dre.variacao_cambial_nao_recebida')
+      if (rec === 0 && vc === 0) return { status: 'info', details: 'Sub-itens zerados (não detalhado)' }
+      const sum = rec + vc, pct = diffPct(total, sum)
+      if (pct <= TOL) return { status: 'ok', details: `Receitas Financeiras: ${fmtN(total)} ✓` }
+      if (sum < total) {
+        return { status: 'info', details: `Total: ${fmtN(total)} | Decomposição parcial (${fmtN(sum)}) — itens sem sub-campo dedicado` }
+      }
+      return { status: 'warning', details: `Soma: ${fmtN(sum)} | RecFin: ${fmtN(total)} | Dif: ${pct.toFixed(2)}% (possível double count)` }
+    },
+  },
+  {
+    label: 'DRE: LAIR = EBIT + Resultado Financeiro + Equivalência + Não-operacionais',
+    description: 'LAIR = EBIT (±) Resultado Financeiro (±) Resultado de Equivalência Patrimonial (+) Receita não operacional (−) Despesa não operacional (±) Saldo de correção monetária (±) Resultado de alienação de ativos.',
     category: 'DRE',
     check: (data) => {
       const lo = n(data, 'dre.lucro_operacional'), lair = n(data, 'dre.lucro_antes_imposto_de_renda')
@@ -262,15 +304,32 @@ const VALIDATIONS: Validation[] = [
     },
   },
   {
-    label: 'DRE: Lucro Líquido = LAIR − IRPJ/CSLL',
-    description: 'LAIR menos impostos deve ser o Lucro Líquido.',
+    label: 'DRE: Lucro antes das participações = LAIR − IRPJ/CSLL',
+    description: 'LAIR menos impostos (IRPJ + CSLL) deve ser o Lucro antes das participações estatutárias.',
     category: 'DRE',
     check: (data) => {
-      const lair = n(data, 'dre.lucro_antes_imposto_de_renda'), ir = n(data, 'dre.provisao_imposto_de_renda') + n(data, 'dre.csll'), ll = n(data, 'dre.lucro_liquido')
-      if (lair === 0 && ll === 0) return { status: 'info', details: 'LAIR e LL zerados' }
-      const calc = lair - ir, pct = diffPct(calc, ll)
-      if (pct > TOL) return { status: 'warning', details: `LAIR-IR: ${fmtN(calc)} | LL: ${fmtN(ll)} | Dif: ${pct.toFixed(2)}%` }
-      return { status: 'ok', details: `LAIR: ${fmtN(lair)} | IR: ${fmtN(ir)} | LL: ${fmtN(ll)} ✓` }
+      const lair = n(data, 'dre.lucro_antes_imposto_de_renda')
+      const ir = n(data, 'dre.provisao_imposto_de_renda') + n(data, 'dre.csll')
+      const lap = n(data, 'dre.lucro_antes_participacoes')
+      if (lair === 0 && lap === 0) return { status: 'info', details: 'LAIR e Lucro antes das participações zerados' }
+      const calc = lair - ir, pct = diffPct(calc, lap)
+      if (pct > TOL) return { status: 'warning', details: `LAIR−IR: ${fmtN(calc)} | Lucro antes das participações: ${fmtN(lap)} | Dif: ${pct.toFixed(2)}%` }
+      return { status: 'ok', details: `LAIR: ${fmtN(lair)} | IR: ${fmtN(ir)} | Lucro antes das participações: ${fmtN(lap)} ✓` }
+    },
+  },
+  {
+    label: 'DRE: Lucro Líquido = Lucro antes das participações − Participações − Minoritários',
+    description: 'Para chegar ao LL, subtrair participações/gratificações estatutárias e participação de minoritários do Lucro antes das participações.',
+    category: 'DRE',
+    check: (data) => {
+      const lap = n(data, 'dre.lucro_antes_participacoes')
+      const partGrat = n(data, 'dre.participacoes_gratificacoes_estatutarias')
+      const partMin = n(data, 'dre.participacao_minoritarios')
+      const ll = n(data, 'dre.lucro_liquido')
+      if (lap === 0 && ll === 0) return { status: 'info', details: 'Lucro antes das participações e LL zerados' }
+      const calc = lap - partGrat - partMin, pct = diffPct(calc, ll)
+      if (pct > TOL) return { status: 'warning', details: `Calc: ${fmtN(calc)} | LL: ${fmtN(ll)} | Dif: ${pct.toFixed(2)}%` }
+      return { status: 'ok', details: `Lucro antes participações: ${fmtN(lap)} | Part/Grat: ${fmtN(partGrat)} | Minoritários: ${fmtN(partMin)} | LL: ${fmtN(ll)} ✓` }
     },
   },
   {

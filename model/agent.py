@@ -365,6 +365,133 @@ class TechFinExtractorAgent(PythonModel):
         except Exception:
             return [], {}
 
+    # Configuração de grupos com campo outros_* — usado no pós-processamento
+    # para recalcular outros como resíduo (total - soma dos campos específicos).
+    _GROUPS_WITH_OUTROS = {
+        "ativo_circulante": {
+            "total": "total_ativo_circulante",
+            "outros": "outros_ativos_circulantes",
+            "specific": ["disponibilidades", "titulos_a_receber", "estoques",
+                         "adiantamentos", "impostos_a_recuperar",
+                         "conta_corrente_socios_control_colig",
+                         "outros_ativos_financeiros"],
+        },
+        "ativo_nao_circulante": {
+            "total": "total_ativo_nao_circulante",
+            "outros": "outros_realizavel_a_longo_prazo",
+            "specific": ["titulos_a_receber", "estoques", "adiantamentos",
+                         "impostos_a_recuperar", "despesas_pagas_antecipadamente",
+                         "conta_corrente_socios_control_colig"],
+        },
+        "passivo_circulante": {
+            "total": "total_passivo_circulante",
+            "outros": "outros_passivos_circulante",
+            "specific": ["fornecedores", "financiamentos_com_instituicoes_de_credito",
+                         "salarios_contribuicoes", "tributos", "adiantamentos",
+                         "conta_corrente_socios_coligadas_controladas", "provisoes",
+                         "outros_passivos_financeiros"],
+        },
+        "passivo_nao_circulante": {
+            "total": "total_passivo_nao_circulante",
+            "outros": "outros_passivos_nao_circulantes",
+            "specific": ["fornecedores", "financiamentos_com_instituicoes_de_credito",
+                         "salarios_contribuicoes", "tributos", "adiantamentos",
+                         "conta_corrente_socios_coligadas_controladas", "provisoes"],
+        },
+    }
+
+    @classmethod
+    def _postprocess_outros(cls, result):
+        """Recalcula campos outros_* como resíduo (total - soma dos específicos)
+        quando a soma dos subitens não bate com o total extraído do documento.
+
+        Segurança: só corrige se o resíduo computado for ≥ 0 e se a diferença
+        atual for significativa (> 1 unidade) — evita ajustes por arredondamento.
+        O total_* e os campos específicos são extraídos diretamente do documento
+        (Regra 11); outros_* é o campo mais propenso a erros aritméticos do LLM."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        for group_name, cfg in cls._GROUPS_WITH_OUTROS.items():
+            grp = result.get(group_name)
+            if not isinstance(grp, dict):
+                continue
+            total_val = grp.get(cfg["total"]) or 0
+            if total_val <= 0:
+                continue
+            specific_sum = sum(grp.get(f) or 0 for f in cfg["specific"])
+            current_outros = grp.get(cfg["outros"]) or 0
+            computed_outros = total_val - specific_sum
+            current_total = specific_sum + current_outros
+            # Só corrige se: (a) diferença relevante (>1) E (b) resíduo não-negativo
+            if abs(current_total - total_val) > 1 and computed_outros >= 0:
+                grp[cfg["outros"]] = round(computed_outros, 2)
+        return result
+
+    # Campos que compõem total_despesas_operacionais (per Regra 13)
+    _DRE_DESP_OP_COMPONENTES = [
+        "despesas_com_vendas",
+        "provisao_para_devedores_duvidosos",
+        "outras_receitas_despesas_operacionais",
+        "despesas_administrativas",
+        "despesas_tributarias",
+        "despesas_gerais",
+        "depreciacao",
+        "amortizacao",
+    ]
+
+    @classmethod
+    def _postprocess_cascata_dre(cls, result):
+        """Corrige inconsistências aritméticas na cascata da DRE:
+
+        1. total_despesas_operacionais = soma dos componentes (Regra 13)
+           — LLMs frequentemente erram a soma de 5+ itens.
+        2. Detecta sinal invertido de provisao_imposto_de_renda comparando
+           com a cascata: se LL = LAIR - provisao - csll não bate mas
+           LL = LAIR + provisao - csll bate, inverte o sinal."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        dre = result.get("dre")
+        if not isinstance(dre, dict):
+            return result
+
+        # (1) Anti-duplicação: se outras_receitas_despesas_operacionais ≈
+        # |despesa_nao_operacional − receita_nao_operacional|, é duplicação do
+        # mesmo bloco não-operacional (LLM extraiu item individual + agregado).
+        # Zera o campo operacional nesse caso.
+        outras_op = dre.get("outras_receitas_despesas_operacionais") or 0
+        desp_no = dre.get("despesa_nao_operacional") or 0
+        rec_no = dre.get("receita_nao_operacional") or 0
+        net_no = abs(desp_no - rec_no)
+        if abs(outras_op) > 1 and net_no > 1:
+            tolerance = max(1.0, net_no * 0.01)
+            if abs(abs(outras_op) - net_no) < tolerance:
+                dre["outras_receitas_despesas_operacionais"] = 0.0
+
+        # (2) total_despesas_operacionais = soma dos componentes
+        components_sum = sum(dre.get(f) or 0 for f in cls._DRE_DESP_OP_COMPONENTES)
+        current_total = dre.get("total_despesas_operacionais") or 0
+        if abs(current_total - components_sum) > 1:
+            dre["total_despesas_operacionais"] = round(components_sum, 2)
+
+        # (3) Checar sinal de provisao_imposto_de_renda via cascata
+        lair = dre.get("lucro_antes_imposto_de_renda") or 0
+        provisao = dre.get("provisao_imposto_de_renda") or 0
+        csll = dre.get("csll") or 0
+        part_grat = dre.get("participacoes_gratificacoes_estatutarias") or 0
+        part_min = dre.get("participacao_minoritarios") or 0
+        ll = dre.get("lucro_liquido") or 0
+
+        if lair > 0 and ll > 0 and abs(provisao) > 1:
+            expected_default = lair - provisao - csll - part_grat - part_min
+            expected_flipped = lair + provisao - csll - part_grat - part_min
+            # Se o sinal atual não bate mas o oposto bate (dentro de 1% do LL)
+            tolerance = max(1.0, abs(ll) * 0.01)
+            if (abs(expected_default - ll) > tolerance
+                and abs(expected_flipped - ll) < tolerance):
+                dre["provisao_imposto_de_renda"] = round(-provisao, 2)
+
+        return result
+
     @staticmethod
     def _recover_truncated_json(raw: str):
         """Try to recover complete JSON records from a truncated response.
@@ -475,6 +602,11 @@ class TechFinExtractorAgent(PythonModel):
             if parsed is not None:
                 if isinstance(parsed, dict):
                     parsed = [parsed]
+                # Pós-processamento: corrige inconsistências aritméticas do LLM.
+                # (a) outros_* recalculado como resíduo do grupo (AC/ANC/PC/PNC)
+                # (b) DRE: total_despesas_operacionais = soma componentes; sinal IRPJ
+                parsed = [self._postprocess_outros(r) for r in parsed]
+                parsed = [self._postprocess_cascata_dre(r) for r in parsed]
                 usage_summary = {
                     "extract_prompt_tokens": extract_usage["prompt_tokens"],
                     "extract_completion_tokens": extract_usage["completion_tokens"],
