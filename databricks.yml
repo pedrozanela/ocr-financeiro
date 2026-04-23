@@ -54,7 +54,6 @@ targets:
       serverless_warehouse_id: "95673eae327f2ace"
 
   azfevm:
-    default: true
     workspace:
       profile: azfevm
     variables:
@@ -62,8 +61,40 @@ targets:
       warehouse_id: "970182bc1a3cc5a0"
       serverless_warehouse_id: "970182bc1a3cc5a0"
 
+  dev:
+    default: true
+    workspace:
+      profile: dev
+    variables:
+      catalog: ia
+      schema: ocr_credito
+      warehouse_id: "c4bc75f5128dbc72"
+      serverless_warehouse_id: "c4bc75f5128dbc72"
+      secret_scope: "techfin-ocr"
+      secret_key: "pat"
+
 resources:
   jobs:
+    setup_secret_scope:
+      name: "ocr-financeiro-setup-secret-scope"
+      tasks:
+        - task_key: setup_secret
+          notebook_task:
+            notebook_path: ./notebooks/setup_secret_scope.py
+            base_parameters:
+              secret_scope: ${var.secret_scope}
+              secret_key:   ${var.secret_key}
+              app_sp_id:    ""
+              pat_comment:  "techfin-ocr-pat"
+              pat_lifetime_days: "365"
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
     setup_infrastructure:
       name: "ocr-financeiro-setup-infrastructure"
       tasks:
