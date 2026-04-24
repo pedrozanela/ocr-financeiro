@@ -1,12 +1,5 @@
-# Databricks App config — apenas command.
-#
-# Env vars (UC_CATALOG, UC_SCHEMA, WAREHOUSE_ID, SERVERLESS_WAREHOUSE_ID,
-# OCR_ENDPOINT, FEWSHOT_JOB_ID, BATCH_JOB_ID, VISION_JOB_ID) são:
-#   • Injetadas automaticamente pelo `databricks bundle deploy` (lê databricks.yml)
-#   • OU configuradas manualmente na UI: Apps → ocr-financeiro → Settings → Env vars
-#
-# Não adicionar env aqui — elas variam por workspace e quebram o fluxo multi-ambiente.
-# Auth: the app's auto-created Service Principal authenticates via WorkspaceClient().
+# Databricks App config.
+# Editar env vars abaixo por ambiente antes do deploy.
 command:
   - python
   - -m
@@ -16,3 +9,23 @@ command:
   - "0.0.0.0"
   - --port
   - "8000"
+
+env:
+  # ---- EDITAR POR AMBIENTE ----
+  - name: WAREHOUSE_ID
+    value: "2cfb6ce796f96ba4"
+  - name: SERVERLESS_WAREHOUSE_ID
+    value: "2cfb6ce796f96ba4"
+  - name: UC_CATALOG
+    value: "fevm_pzanela_classic_aws_catalog"
+  - name: UC_SCHEMA
+    value: "ocr_financeiro"
+  - name: OCR_ENDPOINT
+    value: "extrator-financeiro"
+  # Jobs — atualizar com IDs gerados no bundle deploy
+  - name: FEWSHOT_JOB_ID
+    value: ""
+  - name: BATCH_JOB_ID
+    value: ""
+  - name: VISION_JOB_ID
+    value: ""
