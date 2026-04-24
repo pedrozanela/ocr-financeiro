@@ -29,19 +29,22 @@ variables:
     default: "pedro-zanela-scope"
   secret_key:
     default: "techfin-ocr-pat"
+  app_sp_id:
+    default: "5914cb1c-3156-41a7-b1ff-1aa9a0778977"
 
 workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
 
 targets:
-  # ── Ambiente pessoal (e2-demo-field-eng) ───────────────────────────────────
-  e2demo:
+  # ── Ambiente pessoal (fevm-pzanela) ───────────────────────────────────
+  fevm_pzanela:
+    default: true
     workspace:
-      profile: DEFAULT
+      profile: fe-vm-fevm-pzanela-classic-aws
     variables:
-      catalog: pedro_zanela
-      warehouse_id: "862f1d757f0424f7"
-      serverless_warehouse_id: "862f1d757f0424f7"
+      catalog: fevm_pzanela_classic_aws_catalog
+      warehouse_id: "2cfb6ce796f96ba4"
+      serverless_warehouse_id: "2cfb6ce796f96ba4"
 
   # ── Ambientes do cliente ───────────────────────────────────────────────────
   fevm:
@@ -62,7 +65,6 @@ targets:
       serverless_warehouse_id: "970182bc1a3cc5a0"
 
   dev:
-    default: true
     workspace:
       profile: dev
     variables:
@@ -84,7 +86,7 @@ resources:
             base_parameters:
               secret_scope: ${var.secret_scope}
               secret_key:   ${var.secret_key}
-              app_sp_id:    ""
+              app_sp_id:    ${var.app_sp_id}
               pat_comment:  "techfin-ocr-pat"
               pat_lifetime_days: "365"
             source: WORKSPACE
@@ -104,7 +106,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-              sp_client_id: ""
+              sp_client_id: ${var.app_sp_id}
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
@@ -142,7 +144,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-              sp_client_id: ""
+              sp_client_id: ${var.app_sp_id}
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
