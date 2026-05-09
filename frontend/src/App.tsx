@@ -35,67 +35,80 @@ export default function App() {
     fetch('/api/me').then(r => r.json()).then(d => setCurrentUser(d.email)).catch(() => {})
   }, [])
 
+  async function handleDelete(documentName: string) {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(documentName)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json()
+        setUploadError(body.detail ?? 'Erro ao excluir')
+        return
+      }
+      if (selected === documentName) setSelected(null)
+      await loadDocs()
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Erro ao excluir documento')
+    }
+  }
+
+  async function uploadSingleFile(file: File, endpoint: string): Promise<string> {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(endpoint, { method: 'POST', body: form })
+    const body = await res.json()
+    if (!res.ok) throw new Error(body.detail ?? `Erro ao enviar ${file.name}`)
+    return body.document_name
+  }
+
+  async function pollUntilDone(docName: string): Promise<void> {
+    for (let i = 0; i < 360; i++) {
+      await new Promise(r => setTimeout(r, 5000))
+      const st = await fetch(`/api/documents/${encodeURIComponent(docName)}/status`).then(r => r.json())
+      if (st.status === 'done') return
+      if (st.status === 'error') throw new Error(st.detail ?? `Erro ao processar ${docName}`)
+    }
+  }
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = e.target.files
+    if (!files || files.length === 0) return
     e.target.value = ''
     setUploading(true)
     setUploadError(null)
     try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/documents/upload', { method: 'POST', body: form })
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.detail ?? 'Erro desconhecido')
-      const docName = body.document_name
-      for (let i = 0; i < 360; i++) {
-        await new Promise(r => setTimeout(r, 5000))
-        const st = await fetch(`/api/documents/${encodeURIComponent(docName)}/status`).then(r => r.json())
-        if (st.status === 'done') {
-          await loadDocs()
-          setSelected(docName)
-          setView('docs')
-          return
-        }
-        if (st.status === 'error') throw new Error(st.detail ?? 'Erro ao processar OCR')
+      const docNames: string[] = []
+      for (const file of Array.from(files)) {
+        docNames.push(await uploadSingleFile(file, '/api/documents/upload'))
       }
+      await Promise.all(docNames.map(name => pollUntilDone(name)))
       await loadDocs()
+      if (docNames.length === 1) setSelected(docNames[0])
       setView('docs')
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
+      await loadDocs()
     } finally {
       setUploading(false)
     }
   }
 
   async function handleUploadPerformance(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = e.target.files
+    if (!files || files.length === 0) return
     e.target.value = ''
     setUploadingPerf(true)
     setUploadError(null)
     try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/documents/upload-performance', { method: 'POST', body: form })
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.detail ?? 'Erro desconhecido')
-      const docName = body.document_name
-      for (let i = 0; i < 360; i++) {
-        await new Promise(r => setTimeout(r, 5000))
-        const st = await fetch(`/api/documents/${encodeURIComponent(docName)}/status`).then(r => r.json())
-        if (st.status === 'done') {
-          await loadDocs()
-          setSelected(docName)
-          setView('docs')
-          return
-        }
-        if (st.status === 'error') throw new Error(st.detail ?? 'Erro ao processar OCR')
+      const docNames: string[] = []
+      for (const file of Array.from(files)) {
+        docNames.push(await uploadSingleFile(file, '/api/documents/upload-performance'))
       }
+      await Promise.all(docNames.map(name => pollUntilDone(name)))
       await loadDocs()
+      if (docNames.length === 1) setSelected(docNames[0])
       setView('docs')
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
+      await loadDocs()
     } finally {
       setUploadingPerf(false)
     }
@@ -107,7 +120,11 @@ export default function App() {
       <aside className="w-72 shrink-0 bg-[#0F2137] flex flex-col">
         {/* Logo */}
         <div className="px-5 pt-4 pb-3 border-b border-white/10">
-          <img src="/logo.webp" alt="Techfin ERP Finance" className="h-8 w-auto" />
+          <img
+            src="https://d28bp6p67p77ho.cloudfront.net/Techfin_Finance_Light_57746e6511_80b733bd5a.svg"
+            alt="Techfin Finance"
+            className="h-14 w-auto"
+          />
         </div>
 
         {/* View toggle */}
@@ -165,7 +182,7 @@ export default function App() {
                 <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
               </div>
             ) : (
-              <DocumentList docs={docs} selected={selected} onSelect={setSelected} search={search} />
+              <DocumentList docs={docs} selected={selected} onSelect={setSelected} onDelete={handleDelete} search={search} />
             )
           ) : (
             <div className="flex-1 flex items-center justify-center text-white/25 text-xs px-6 text-center">
@@ -196,7 +213,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
             {uploading ? 'Processando…' : 'Enviar PDF'}
-            <input type="file" accept=".pdf" className="hidden" onChange={handleUpload} disabled={uploading || uploadingPerf} />
+            <input type="file" accept=".pdf" multiple className="hidden" onChange={handleUpload} disabled={uploading || uploadingPerf} />
           </label>
 
           <label className={`flex items-center justify-center gap-2 w-full py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
@@ -206,7 +223,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             {uploadingPerf ? 'Processando…' : 'Enviar PDF — Modo Vision'}
-            <input type="file" accept=".pdf" className="hidden" onChange={handleUploadPerformance} disabled={uploading || uploadingPerf} />
+            <input type="file" accept=".pdf" multiple className="hidden" onChange={handleUploadPerformance} disabled={uploading || uploadingPerf} />
           </label>
 
           <a

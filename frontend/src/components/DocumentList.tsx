@@ -4,6 +4,7 @@ interface Props {
   docs: DocSummary[]
   selected: string | null
   onSelect: (name: string) => void
+  onDelete: (name: string) => void
   search: string
 }
 
@@ -45,7 +46,7 @@ const STATUS_TITLES = {
   empty:   'Dados não extraídos',
 }
 
-export default function DocumentList({ docs, selected, onSelect, search }: Props) {
+export default function DocumentList({ docs, selected, onSelect, onDelete, search }: Props) {
   const filtered = docs.filter(doc => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
@@ -116,9 +117,21 @@ export default function DocumentList({ docs, selected, onSelect, search }: Props
                 )}
               </div>
 
-              {isSelected && (
-                <div className="w-1.5 h-1.5 rounded-full bg-white shrink-0" />
-              )}
+              {/* Delete button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (confirm(`Excluir "${doc.razao_social ?? doc.document_name}"?\nIsso remove o documento, resultados e PDF.`)) {
+                    onDelete(doc.document_name)
+                  }
+                }}
+                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/30 text-white/30 hover:text-red-300 transition-all shrink-0"
+                title="Excluir documento"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
             </button>
           </li>
         )

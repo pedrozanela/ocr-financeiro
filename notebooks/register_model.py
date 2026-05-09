@@ -84,7 +84,16 @@ if os.path.exists(FEWSHOT_FILE):
 # COMMAND ----------
 
 _user = spark.sql("SELECT current_user()").collect()[0][0]
-_exp_name = f"/Users/{_user}/experiments/ocr-financeiro"
+_parent_dir = f"/Users/{_user}/experiments"
+_exp_name = f"{_parent_dir}/ocr-financeiro"
+
+# Garante que o diretório pai existe (MLflow não cria parents)
+try:
+    from databricks.sdk import WorkspaceClient
+    WorkspaceClient().workspace.mkdirs(_parent_dir)
+except Exception as e:
+    print(f"Aviso ao criar {_parent_dir}: {e}")
+
 _exp = mlflow.set_experiment(_exp_name)
 EXPERIMENT_ID = _exp.experiment_id
 print(f"Experimento: {_exp_name} (ID: {EXPERIMENT_ID})")

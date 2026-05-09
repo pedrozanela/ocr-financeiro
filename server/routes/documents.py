@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
-from ..db import execute_sql
-from ..config import RESULTS_TABLE, SOURCE_TABLE, PDF_VOLUME_PATH, get_client
+from ..db import execute_sql, execute_update
+from ..config import RESULTS_TABLE, SOURCE_TABLE, CORRECTIONS_TABLE, PDF_VOLUME_PATH, get_client
 from .upload import _runs
 
 router = APIRouter()
@@ -82,6 +82,47 @@ def reprocess_document(document_name: str):
         return {"document_name": document_name, "status": "processing", "run_id": run.run_id}
     except Exception as e:
         raise HTTPException(500, f"Erro ao disparar job: {e}")
+
+
+@router.delete("/documents/{document_name}")
+def delete_document(document_name: str):
+    client = get_client()
+    deleted_tables = []
+    # 1. Remove from resultados
+    try:
+        execute_update(
+            f"DELETE FROM {RESULTS_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+        deleted_tables.append("resultados")
+    except Exception as e:
+        print(f"[delete] WARNING resultados: {e}")
+    # 2. Remove from documentos (source)
+    try:
+        execute_update(
+            f"DELETE FROM {SOURCE_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+        deleted_tables.append("documentos")
+    except Exception as e:
+        print(f"[delete] WARNING documentos: {e}")
+    # 3. Remove from correcoes
+    try:
+        execute_update(
+            f"DELETE FROM {CORRECTIONS_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+        deleted_tables.append("correcoes")
+    except Exception as e:
+        print(f"[delete] WARNING correcoes: {e}")
+    # 4. Remove PDF from volume
+    fname = document_name if document_name.endswith(".pdf") else f"{document_name}.pdf"
+    try:
+        client.files.delete(f"{PDF_VOLUME_PATH}/{fname}")
+        deleted_tables.append("pdf")
+    except Exception as e:
+        print(f"[delete] WARNING pdf: {e}")
+    return {"document_name": document_name, "deleted_from": deleted_tables}
 
 
 @router.get("/documents/{document_name}/ocr-text")
