@@ -93,25 +93,20 @@ def _update_resultados_final(document_name: str, tipo_entidade: str, periodo: st
     esc_user = user.replace("'", "''")
 
     execute_update(
-        f"""MERGE INTO {RESULTS_FINAL_TABLE} AS t
-            USING (SELECT :name AS document_name, :te AS tipo_entidade, :per AS periodo) AS s
-              ON t.document_name = s.document_name
-              AND COALESCE(t.tipo_entidade, '') = s.tipo_entidade
-              AND COALESCE(t.periodo, '') = s.periodo
-            WHEN MATCHED THEN UPDATE SET
-                extracted_json = :json,
-                razao_social = :rs,
-                cnpj = :cnpj,
-                tipo_demonstrativo = :td,
-                moeda = :moeda,
-                escala_valores = :escala,
-                atualizado_em = CURRENT_TIMESTAMP(),
-                atualizado_por = :user
-            WHEN NOT MATCHED THEN INSERT
+        f"""INSERT INTO {RESULTS_FINAL_TABLE}
                 (document_name, tipo_entidade, periodo, extracted_json, razao_social, cnpj,
                  tipo_demonstrativo, moeda, escala_valores, atualizado_em, atualizado_por)
             VALUES (:name, :te, :per, :json, :rs, :cnpj, :td, :moeda, :escala,
-                    CURRENT_TIMESTAMP(), :user)""",
+                    NOW(), :user)
+            ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
+                extracted_json = EXCLUDED.extracted_json,
+                razao_social = EXCLUDED.razao_social,
+                cnpj = EXCLUDED.cnpj,
+                tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                moeda = EXCLUDED.moeda,
+                escala_valores = EXCLUDED.escala_valores,
+                atualizado_em = NOW(),
+                atualizado_por = EXCLUDED.atualizado_por""",
         [
             {"name": "name",   "value": document_name},
             {"name": "te",     "value": tipo_entidade},

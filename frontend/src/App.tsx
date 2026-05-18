@@ -20,6 +20,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false)
   const [uploadingPerf, setUploadingPerf] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<{ total: number; done: number; current: string[] }>({ total: 0, done: 0, current: [] })
   const [search, setSearch] = useState('')
   const [currentUser, setCurrentUser] = useState<string | null>(null)
 
@@ -68,50 +69,52 @@ export default function App() {
     }
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-    e.target.value = ''
-    setUploading(true)
+  async function processFiles(files: File[], endpoint: string, setFlag: (v: boolean) => void) {
+    if (files.length === 0) return
+    setFlag(true)
     setUploadError(null)
+    setUploadProgress({ total: files.length, done: 0, current: [] })
     try {
+      // Upload all files first (sequential to avoid overload)
       const docNames: string[] = []
-      for (const file of Array.from(files)) {
-        docNames.push(await uploadSingleFile(file, '/api/documents/upload'))
+      for (const file of files) {
+        docNames.push(await uploadSingleFile(file, endpoint))
       }
-      await Promise.all(docNames.map(name => pollUntilDone(name)))
-      await loadDocs()
+      // Track processing names
+      setUploadProgress(p => ({ ...p, current: [...docNames] }))
+      // Poll each in parallel, refresh docs as each completes
+      await Promise.all(docNames.map(async (name) => {
+        try {
+          await pollUntilDone(name)
+        } catch { /* individual error — continue others */ }
+        setUploadProgress(p => ({
+          ...p,
+          done: p.done + 1,
+          current: p.current.filter(n => n !== name),
+        }))
+        await loadDocs()
+      }))
       if (docNames.length === 1) setSelected(docNames[0])
       setView('docs')
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
       await loadDocs()
     } finally {
-      setUploading(false)
+      setFlag(false)
+      setUploadProgress({ total: 0, done: 0, current: [] })
     }
   }
 
-  async function handleUploadPerformance(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
-    if (!files || files.length === 0) return
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    setUploadingPerf(true)
-    setUploadError(null)
-    try {
-      const docNames: string[] = []
-      for (const file of Array.from(files)) {
-        docNames.push(await uploadSingleFile(file, '/api/documents/upload-performance'))
-      }
-      await Promise.all(docNames.map(name => pollUntilDone(name)))
-      await loadDocs()
-      if (docNames.length === 1) setSelected(docNames[0])
-      setView('docs')
-    } catch (err: unknown) {
-      setUploadError(err instanceof Error ? err.message : 'Erro ao processar PDF')
-      await loadDocs()
-    } finally {
-      setUploadingPerf(false)
-    }
+    await processFiles(files, '/api/documents/upload', setUploading)
+  }
+
+  async function handleUploadPerformance(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    await processFiles(files, '/api/documents/upload-performance', setUploadingPerf)
   }
 
   return (
@@ -194,11 +197,22 @@ export default function App() {
         {/* Footer actions */}
         <div className="px-4 py-4 border-t border-white/10 space-y-2">
           {(uploading || uploadingPerf) && (
-            <div className="flex items-center gap-2 bg-blue-400/20 rounded-lg px-3 py-2">
-              <div className="w-3 h-3 border border-blue-300/50 border-t-blue-200 rounded-full animate-spin shrink-0" />
-              <p className="text-xs text-blue-200">
-                {uploadingPerf ? 'Modo Vision… pode levar 4-6 min' : 'Extraindo dados… pode levar 2-4 min'}
-              </p>
+            <div className="bg-blue-400/20 rounded-lg px-3 py-2 space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 border border-blue-300/50 border-t-blue-200 rounded-full animate-spin shrink-0" />
+                <p className="text-xs text-blue-200">
+                  {uploadProgress.total > 1
+                    ? `Processando ${uploadProgress.done}/${uploadProgress.total} PDFs`
+                    : uploadingPerf ? 'Modo Vision… pode levar 4-6 min' : 'Extraindo dados… pode levar 2-4 min'}
+                </p>
+              </div>
+              {uploadProgress.current.length > 0 && uploadProgress.total > 1 && (
+                <div className="pl-5 space-y-0.5">
+                  {uploadProgress.current.map(name => (
+                    <p key={name} className="text-[10px] text-blue-300/60 truncate">{name}</p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {uploadError && (

@@ -25,6 +25,50 @@ function formatValue(raw: string, type: 'number' | 'text' | 'date', scale: strin
   return brl.format(n * multiplier)
 }
 
+// Cascade totals: soma simples respeitando sinais do documento.
+// Deduções, custos, despesas, IR, CSLL etc. já vêm negativos do modelo.
+const CASCADE_FORMULAS: Record<string, string[]> = {
+  'dre.receita_operacional_liquida': [
+    'dre.receita_operacional_bruta',
+    'dre.total_deducoes',
+    'dre.incentivos_a_exportacoes',
+  ],
+  'dre.lucro_bruto': [
+    'dre.receita_operacional_liquida',
+    'dre.total_custo',
+  ],
+  'dre.lucro_operacional': [
+    'dre.lucro_bruto',
+    'dre.total_despesas_operacionais',
+  ],
+  'dre.lucro_financeiro': [
+    'dre.lucro_operacional',
+    'dre.despesas_financeiras',
+    'dre.total_receitas_financeiras',
+  ],
+  'dre.lucro_antes_imposto_de_renda': [
+    'dre.lucro_financeiro',
+    'dre.resultado_de_equivalencia_patrimonial',
+    'dre.receita_nao_operacional',
+    'dre.despesa_nao_operacional',
+    'dre.saldo_correcao_monetaria',
+    'dre.resultado_alienacao_ativos',
+  ],
+  'dre.lucro_antes_participacoes': [
+    'dre.lucro_antes_imposto_de_renda',
+    'dre.provisao_imposto_de_renda',
+    'dre.csll',
+  ],
+  'dre.lucro_antes_participacao_minoritaria': [
+    'dre.lucro_antes_participacoes',
+    'dre.participacoes_gratificacoes_estatutarias',
+  ],
+  'dre.lucro_liquido': [
+    'dre.lucro_antes_participacao_minoritaria',
+    'dre.participacao_minoritarios',
+  ],
+}
+
 const GROUP_LABELS: Record<string, string> = {
   'identificacao':       'Identificação',
   'ativo_circulante':    'Ativo Circulante',
@@ -81,6 +125,21 @@ interface CorrectionData {
   confirmado_por?: string | null
 }
 
+function getEffectiveNumericValue(
+  field: FieldDef,
+  data: unknown,
+  corrections: Record<string, CorrectionData>,
+  getValue: (obj: unknown, path: string) => string,
+  scale: string,
+): number {
+  if (field.type !== 'number') return 0
+  const correction = corrections[field.path]
+  const raw = correction ? correction.valor_correto : getValue(data, field.path)
+  if (!raw || raw === '' || raw === 'null') return 0
+  const n = parseFloat(raw)
+  return isNaN(n) ? 0 : n * getScaleMultiplier(scale)
+}
+
 interface Props {
   section: SectionDef
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,6 +158,17 @@ interface Props {
 export default function FieldSection({ section, data, scale, corrections, assessment, saving, saved, getValue, onSave, onDelete, onConfirm }: Props) {
   const { groups, useGroups } = buildGroups(section.fields)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  // Fontes map: field_path → source text from PDF
+  const fontes: Record<string, string> = data?.fontes ?? {}
+
+  // Postprocessed map: field_path → original LLM value (before model recalculation)
+  const postprocessedMap: Record<string, number> = {}
+  if (data?._postprocessed && Array.isArray(data._postprocessed)) {
+    for (const pp of data._postprocessed) {
+      postprocessedMap[pp.campo] = pp.original
+    }
+  }
 
   function toggle(key: string) {
     setCollapsed(prev => {
@@ -123,6 +193,9 @@ export default function FieldSection({ section, data, scale, corrections, assess
           correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
           correction={correction}
           assessmentItem={assessment[field.path]}
+          fonte={fontes[field.path]}
+          llmOriginal={postprocessedMap[field.path]}
+          scale={scale}
           isTotal={field.isTotal ?? false}
           saving={saving === field.path}
           saved={saved === field.path}
@@ -136,25 +209,145 @@ export default function FieldSection({ section, data, scale, corrections, assess
 
   if (!useGroups) {
     // Flat layout — DRE and Identificação
+    // Build blocks: each isTotal field has the non-total number fields before it as components
+    const hasAnyTotal = section.fields.some(f => f.isTotal)
+
+    if (!hasAnyTotal) {
+      // Identificação — no totals, render flat
+      return (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="divide-y divide-gray-50">
+            {renderFields(section.fields)}
+          </div>
+        </div>
+      )
+    }
+
+    // DRE — totals show computed sum as primary value
+    // Phase 1: compute all totals upfront so cascade can propagate
+    const computedMap: Record<string, number> = {}
+    const computedLabelMap: Record<string, string> = {}
+    let bf: FieldDef[] = []
+
+    // Helper: get effective value for a field, preferring computed total for totals
+    function getEffective(path: string): number {
+      if (path in computedMap) return computedMap[path]
+      const raw = corrections[path]?.valor_correto ?? getValue(data, path)
+      if (!raw || raw === '' || raw === 'null') return 0
+      const n = parseFloat(raw)
+      return isNaN(n) ? 0 : n * getScaleMultiplier(scale)
+    }
+
+    for (const field of section.fields) {
+      if (field.isTotal && field.type === 'number') {
+        const cascadeFormula = CASCADE_FORMULAS[field.path]
+        if (cascadeFormula) {
+          // Cascade reads from computedMap (propagates previous totals)
+          computedMap[field.path] = cascadeFormula.reduce((sum, p) => sum + getEffective(p), 0)
+          computedLabelMap[field.path] = 'Fórmula'
+          bf.length = 0
+        } else if (bf.length > 0) {
+          computedMap[field.path] = bf.reduce(
+            (sum, f) => sum + getEffective(f.path), 0
+          )
+          computedLabelMap[field.path] = 'Soma'
+          bf.length = 0
+        } else {
+          bf.length = 0
+        }
+      } else if (!field.isTotal && field.type === 'number') {
+        bf.push(field)
+      }
+    }
+
+    // Phase 2: render using pre-computed map
+    const elements: React.ReactNode[] = []
+    for (const field of section.fields) {
+      const extracted = getValue(data, field.path)
+      const correction = corrections[field.path]
+
+      elements.push(
+        <FieldRow
+          key={field.path}
+          label={field.label}
+          path={field.path}
+          extracted={extracted}
+          extractedFormatted={formatValue(extracted, field.type, scale)}
+          correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
+          correction={correction}
+          assessmentItem={assessment[field.path]}
+          computedTotal={computedMap[field.path]}
+          computedLabel={computedLabelMap[field.path]}
+          fonte={fontes[field.path]}
+          llmOriginal={postprocessedMap[field.path]}
+          scale={scale}
+          isTotal={field.isTotal ?? false}
+          saving={saving === field.path}
+          saved={saved === field.path}
+          onSave={onSave}
+          onDelete={onDelete}
+          onConfirm={onConfirm}
+        />
+      )
+    }
+
     return (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="divide-y divide-gray-50">
-          {renderFields(section.fields)}
+          {elements}
         </div>
       </div>
     )
   }
 
   // Grouped layout — Ativo and Passivo
+  // Pre-compute sums for each sub-group so root can use them
+  const groupSumMap: Record<string, number> = {}
+  for (const group of groups) {
+    if (group.isRoot) continue
+    const nonTotalFields = group.fields.filter(f => !f.isTotal && f.type === 'number')
+    groupSumMap[group.key] = nonTotalFields.reduce(
+      (sum, f) => sum + getEffectiveNumericValue(f, data, corrections, getValue, scale), 0
+    )
+  }
+
   return (
     <div className="space-y-3">
       {groups.map(group => {
         if (group.isRoot) {
-          // Root-level totals rendered as standalone cards
+          // Root total = sum of sub-group computed sums
+          const rootSum = Object.values(groupSumMap).reduce((a, b) => a + b, 0)
+
           return (
             <div key={group.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="divide-y divide-gray-50">
-                {renderFields(group.fields)}
+                {group.fields.map(field => {
+                  const extracted = getValue(data, field.path)
+                  const correction = corrections[field.path]
+
+                  return (
+                    <FieldRow
+                      key={field.path}
+                      label={field.label}
+                      path={field.path}
+                      extracted={extracted}
+                      extractedFormatted={formatValue(extracted, field.type, scale)}
+                      correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
+                      correction={correction}
+                      assessmentItem={assessment[field.path]}
+                      computedTotal={field.isTotal ? rootSum : undefined}
+                      computedLabel="Soma dos blocos"
+                      fonte={fontes[field.path]}
+                      scale={scale}
+                      isTotal={field.isTotal ?? false}
+                      saving={saving === field.path}
+                      saved={saved === field.path}
+                      onSave={onSave}
+                      onDelete={onDelete}
+                      onConfirm={onConfirm}
+                    />
+                  )
+                })}
               </div>
             </div>
           )
@@ -162,13 +355,12 @@ export default function FieldSection({ section, data, scale, corrections, assess
 
         const isOpen = !collapsed.has(group.key)
         const corrCount = group.fields.filter(f => corrections[f.path]).length
-        // Last isTotal field = group total
         const totalField = [...group.fields].reverse().find(f => f.isTotal)
-        const totalValue = totalField ? formatValue(getValue(data, totalField.path), totalField.type, scale) : null
+        const calculatedSum = groupSumMap[group.key] ?? 0
 
         return (
           <div key={group.key} className="border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            {/* Group header */}
+            {/* Group header — no sum, just label */}
             <button
               onClick={() => toggle(group.key)}
               className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
@@ -189,15 +381,37 @@ export default function FieldSection({ section, data, scale, corrections, assess
                   {corrCount} correç{corrCount !== 1 ? 'ões' : 'ão'}
                 </span>
               )}
-
-              {totalValue && (
-                <span className="ml-auto text-sm font-mono font-bold text-gray-800 tabular-nums">{totalValue}</span>
-              )}
             </button>
 
             {isOpen && (
               <div className="bg-white divide-y divide-gray-50 animate-fade-in">
-                {renderFields(group.fields)}
+                {group.fields.map(field => {
+                  const extracted = getValue(data, field.path)
+                  const correction = corrections[field.path]
+
+                  return (
+                    <FieldRow
+                      key={field.path}
+                      label={field.label}
+                      path={field.path}
+                      extracted={extracted}
+                      extractedFormatted={formatValue(extracted, field.type, scale)}
+                      correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
+                      correction={correction}
+                      assessmentItem={assessment[field.path]}
+                      computedTotal={field.isTotal ? calculatedSum : undefined}
+                      computedLabel="Soma"
+                      fonte={fontes[field.path]}
+                      scale={scale}
+                      isTotal={field.isTotal ?? false}
+                      saving={saving === field.path}
+                      saved={saved === field.path}
+                      onSave={onSave}
+                      onDelete={onDelete}
+                      onConfirm={onConfirm}
+                    />
+                  )
+                })}
               </div>
             )}
           </div>
@@ -217,6 +431,15 @@ interface RowProps {
   correctionFormatted?: string
   correction?: CorrectionData
   assessmentItem?: AssessmentItem
+  /** For total fields: the computed sum that becomes the displayed value */
+  computedTotal?: number
+  /** For total fields: label describing how it was computed */
+  computedLabel?: string
+  /** Source text from PDF used to extract this field */
+  fonte?: string
+  /** Original LLM value before post-processing (if recalculated) */
+  llmOriginal?: number
+  scale: string
   isTotal: boolean
   saving: boolean
   saved: boolean
@@ -236,9 +459,18 @@ const ERROR_TAGS = [
   'IR/CSLL diferido não incluído',
 ]
 
-function FieldRow({ label, path, extracted, extractedFormatted, correctionFormatted, correction, assessmentItem, isTotal, saving, saved, onSave, onDelete, onConfirm }: RowProps) {
+function FieldRow({ label, path, extracted, extractedFormatted, correctionFormatted, correction, assessmentItem, computedTotal, computedLabel, fonte, llmOriginal, scale, isTotal, saving, saved, onSave, onDelete, onConfirm }: RowProps) {
+  const mult = getScaleMultiplier(scale)
+  // Display value in UI scale (unit), store in JSON scale
+  const extractedScaled = (() => {
+    const n = parseFloat(extracted)
+    return isNaN(n) ? extracted : String(n * mult)
+  })()
+  const corrScaled = correction?.valor_correto
+    ? (() => { const n = parseFloat(correction.valor_correto); return isNaN(n) ? correction.valor_correto : String(n * mult) })()
+    : undefined
   const [editing, setEditing]       = useState(false)
-  const [corrValue, setCorrValue]   = useState(correction?.valor_correto ?? extracted)
+  const [corrValue, setCorrValue]   = useState(corrScaled ?? extractedScaled)
   const [comment, setComment]       = useState(correction?.comentario ?? '')
   const [freeText, setFreeText]     = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -247,7 +479,7 @@ function FieldRow({ label, path, extracted, extractedFormatted, correctionFormat
   const hasCorrBadge = !!correction
 
   function startEdit() {
-    setCorrValue(correction?.valor_correto ?? extracted)
+    setCorrValue(corrScaled ?? extractedScaled)
     setComment(correction?.comentario ?? '')
     setFreeText(!!correction?.comentario && !ERROR_TAGS.includes(correction.comentario))
     setEditing(true)
@@ -257,12 +489,15 @@ function FieldRow({ label, path, extracted, extractedFormatted, correctionFormat
   function activateFreeText()     { setComment(''); setFreeText(true) }
 
   async function handleSave() {
-    await onSave(path, extracted, corrValue, comment)
+    // Convert back to JSON scale for storage
+    const n = parseFloat(corrValue)
+    const valueToStore = isNaN(n) ? corrValue : String(n / mult)
+    await onSave(path, extracted, valueToStore, comment)
     setEditing(false)
   }
 
   function handleCancel() {
-    setCorrValue(correction?.valor_correto ?? extracted)
+    setCorrValue(corrScaled ?? extractedScaled)
     setComment(correction?.comentario ?? '')
     setFreeText(false)
     setEditing(false)
@@ -302,24 +537,67 @@ function FieldRow({ label, path, extracted, extractedFormatted, correctionFormat
               {assessmentItem.confianca === 'baixa' ? '⚠ baixa' : '~ média'}
             </span>
           )}
+          {fonte && (
+            <span
+              title={fonte}
+              className="inline-flex items-center justify-center w-4 h-4 rounded-full cursor-help shrink-0 bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-500 transition-colors text-[10px] font-bold"
+            >
+              i
+            </span>
+          )}
         </div>
 
         {/* Value */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
-          <span className={`text-sm font-mono tabular-nums ${
-            hasCorrBadge ? 'line-through text-gray-300' : isTotal ? 'font-bold text-gray-900' : 'text-gray-700'
-          }`}>
-            {extractedFormatted || <span className="text-gray-200 font-sans text-xs not-italic">—</span>}
-          </span>
-          {hasCorrBadge && (
-            <span className={`flex items-center gap-1 text-sm font-mono font-semibold tabular-nums ${
-              isConfirmed ? 'text-emerald-700' : 'text-amber-700'
-            }`}>
-              <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-              {correctionFormatted ?? correction!.valor_correto}
-            </span>
+          {isTotal && computedTotal !== undefined ? (
+            <>
+              {/* Total: show computed sum as primary value */}
+              <span className="text-sm font-mono font-bold tabular-nums text-gray-900">
+                {brl.format(computedTotal)}
+              </span>
+              {/* Badge showing LLM-extracted value if different */}
+              {(() => {
+                // Use original LLM value (before post-processing) if available
+                const llmVal = llmOriginal !== undefined
+                  ? llmOriginal * mult
+                  : parseFloat(extracted) * mult || 0
+                const llmFormatted = llmOriginal !== undefined
+                  ? brl.format(llmVal)
+                  : (extractedFormatted || '—')
+                if (Math.abs(computedTotal - llmVal) > 0.01 && llmFormatted !== '—') {
+                  return (
+                    <span
+                      title={`${computedLabel ?? 'Soma'} dos componentes\nValor extraído pelo LLM: ${llmFormatted}`}
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full cursor-help shrink-0 bg-amber-50 text-amber-600 border border-amber-200"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z" />
+                      </svg>
+                      LLM: {llmFormatted}
+                    </span>
+                  )
+                }
+                return null
+              })()}
+            </>
+          ) : (
+            <>
+              <span className={`text-sm font-mono tabular-nums ${
+                hasCorrBadge ? 'line-through text-gray-300' : isTotal ? 'font-bold text-gray-900' : 'text-gray-700'
+              }`}>
+                {extractedFormatted || <span className="text-gray-200 font-sans text-xs not-italic">—</span>}
+              </span>
+              {hasCorrBadge && (
+                <span className={`flex items-center gap-1 text-sm font-mono font-semibold tabular-nums ${
+                  isConfirmed ? 'text-emerald-700' : 'text-amber-700'
+                }`}>
+                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                  {correctionFormatted ?? correction!.valor_correto}
+                </span>
+              )}
+            </>
           )}
         </div>
 

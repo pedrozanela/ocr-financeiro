@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import FieldSection from './FieldSection'
-import FontesPanel from './FontesPanel'
+// FontesPanel removed — fontes shown inline via FieldRow tooltip
 import OcrTextPanel from './OcrTextPanel'
 import PontosDeAtencao from './PontosDeAtencao'
 import RulesPanel from './RulesPanel'
@@ -272,14 +272,12 @@ export default function FinancialReview({ documentName }: Props) {
     return Object.keys(recordCorrections).filter(k => paths.has(k)).length
   })
 
-  const FONTES_TAB = SECTIONS.length
-  const OCR_TAB    = SECTIONS.length + 1
-  const PONTOS_TAB = SECTIONS.length + 2
-  const REGRAS_TAB = SECTIONS.length + 3
+  const OCR_TAB    = SECTIONS.length
+  const PONTOS_TAB = SECTIONS.length + 1
+  const REGRAS_TAB = SECTIONS.length + 2
 
   const tabs = [
     ...SECTIONS.map((s, i) => ({ label: s.label, count: sectionCounts[i] })),
-    { label: 'Fontes', count: 0 },
     { label: 'Texto OCR', count: 0 },
     { label: 'Pontos de Atenção', count: 0 },
     { label: 'Regras', count: 0 },
@@ -482,8 +480,6 @@ export default function FinancialReview({ documentName }: Props) {
             <PontosDeAtencao records={[current]} />
           ) : activeTab === OCR_TAB ? (
             <OcrTextPanel documentName={documentName} />
-          ) : activeTab === FONTES_TAB ? (
-            <FontesPanel data={data} />
           ) : (
             <FieldSection
               section={SECTIONS[activeTab]}

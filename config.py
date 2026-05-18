@@ -21,11 +21,18 @@ IS_DATABRICKS_APP = bool(os.environ.get("DATABRICKS_APP_NAME"))
 UC_CATALOG = os.environ.get("UC_CATALOG", "")
 UC_SCHEMA = os.environ.get("UC_SCHEMA", "ocr_financeiro")
 
-# Tabelas
-SOURCE_TABLE = os.environ.get("SOURCE_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.documentos")
-RESULTS_TABLE = os.environ.get("RESULTS_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.resultados")
-CORRECTIONS_TABLE = os.environ.get("CORRECTIONS_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.correcoes")
-RESULTS_FINAL_TABLE = os.environ.get("RESULTS_FINAL_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.resultados_final")
+# Tabelas — Lakebase (PostgreSQL) uses simple names; Delta uses catalog.schema.table
+USE_LAKEBASE = bool(os.environ.get("LAKEBASE_HOST"))
+if USE_LAKEBASE:
+    SOURCE_TABLE = "documentos"
+    RESULTS_TABLE = "resultados"
+    CORRECTIONS_TABLE = "correcoes"
+    RESULTS_FINAL_TABLE = "resultados_final"
+else:
+    SOURCE_TABLE = os.environ.get("SOURCE_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.documentos")
+    RESULTS_TABLE = os.environ.get("RESULTS_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.resultados")
+    CORRECTIONS_TABLE = os.environ.get("CORRECTIONS_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.correcoes")
+    RESULTS_FINAL_TABLE = os.environ.get("RESULTS_FINAL_TABLE", f"{UC_CATALOG}.{UC_SCHEMA}.resultados_final")
 
 # Modelo registrado
 UC_MODEL_NAME = os.environ.get("UC_MODEL_NAME", f"{UC_CATALOG}.{UC_SCHEMA}.extrator_financeiro")

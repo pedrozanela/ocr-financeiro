@@ -369,7 +369,7 @@
             "type": "number"
           },
           "total_deducoes": {
-            "description": "Soma de vendas anuladas, abatimentos e impostos incidentes sobre vendas. (Atenção para sinalização de redutor: Deduções, Deduções da receita operacional bruta, (-) deduções da receita bruta).",
+            "description": "Soma de vendas anuladas, abatimentos e impostos incidentes sobre vendas. Valor negativo (são redutores de receita).",
             "type": "number"
           },
           "incentivos_a_exportacoes": {
@@ -377,7 +377,7 @@
             "description": "Incentivos a exportações"
           },
           "receita_operacional_liquida": {
-            "description": "Receita Operacional Bruta subtraída do Total de Deduções.",
+            "description": "ROB + total_deducoes + incentivos_a_exportacoes (soma simples, deduções já negativas).",
             "type": "number"
           },
           "custo_servicos_produtos_mercadorias_vendidas": {
@@ -393,7 +393,7 @@
             "description": "Custo total (CMV/CPV/CSP + Superveniências ativas). Soma de custo_servicos_produtos_mercadorias_vendidas e superveniencias_ativas"
           },
           "lucro_bruto": {
-            "description": "Receita Operacional Líquida subtraída dos Custos (CMV/CPV/CSP).",
+            "description": "ROL + total_custo (soma simples, custo já negativo).",
             "type": "number"
           },
           "despesas_com_vendas": {
@@ -466,7 +466,7 @@
           },
           "lucro_financeiro": {
             "type": "number",
-            "description": "Lucro Financeiro (Lucro Operacional - Despesas Financeiras + Receitas Financeiras)"
+            "description": "Lucro Financeiro = lucro_operacional + despesas_financeiras + total_receitas_financeiras (soma simples, despesas já negativas)"
           },
           "resultado_de_equivalencia_patrimonial": {
             "description": "Resultado gerado por investimentos em controladas/coligadas (positivo ou negativo)",
@@ -489,7 +489,7 @@
             "description": "Ganho ou perda na venda de ativos (imobilizado, investimentos)"
           },
           "lucro_antes_imposto_de_renda": {
-            "description": "LAIR. Lucro Operacional +/- Resultado Financeiro +/- Equivalência/Não Operacionais.",
+            "description": "LAIR = lucro_financeiro + equiv_patrimonial + rec_nao_op + desp_nao_op + saldo_corr + result_alien (soma simples).",
             "type": "number"
           },
           "provisao_imposto_de_renda": {
@@ -502,7 +502,7 @@
           },
           "lucro_antes_participacoes": {
             "type": "number",
-            "description": "Lucro antes das participações (LAIR - IR - CSLL)"
+            "description": "LAIR + provisao_ir + csll (soma simples, IR e CSLL já negativos)"
           },
           "participacoes_gratificacoes_estatutarias": {
             "type": "number",

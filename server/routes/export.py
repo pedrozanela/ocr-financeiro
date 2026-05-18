@@ -157,6 +157,16 @@ def _num(val):
         return 0.0
 
 
+def _scale_multiplier(escala: str) -> float:
+    """Same logic as frontend getScaleMultiplier."""
+    s = (escala or "").lower().strip()
+    if "milhão" in s or "milhao" in s or "million" in s:
+        return 1_000_000
+    if "mil" in s or "thousand" in s:
+        return 1_000
+    return 1
+
+
 def _sheet_name(name: str, used: set) -> str:
     """Safe, unique Excel sheet name (max 31 chars)."""
     safe = name[:28].strip().replace("/", "-").replace("\\", "-").replace("?", "").replace("*", "").replace("[", "").replace("]", "").replace(":", "")
@@ -264,6 +274,12 @@ def export_excel(document: str | None = None):
         escala = _get(first_data, "identificacao.escala_valores") or "UNIDADE"
         cnpj   = _get(first_data, "cnpj") or ""
 
+        # Scale multipliers per record (to convert to unit granularity)
+        multipliers = [
+            _scale_multiplier(_get(rec["data"], "identificacao.escala_valores") or escala)
+            for rec in records
+        ]
+
         # Data columns: one per (tipo_entidade, periodo) record
         # Column B = labels, columns C+ = data
         n_cols = len(records)
@@ -273,7 +289,7 @@ def export_excel(document: str | None = None):
         ws.cell(1, 1, "MOEDA").font = Font(bold=True, color="FFFFFF", size=10)
         ws.cell(1, 1).fill = fill_meta
         ws.cell(1, 1).alignment = align_center
-        moeda_str = f"{moeda} ({escala})"
+        moeda_str = f"{moeda} (UNIDADE)"
         ws.cell(1, 2, moeda_str).font = Font(bold=True, color="FFFFFF", size=10)
         ws.cell(1, 2).fill = fill_meta
         ws.cell(1, 2).alignment = align_center
@@ -338,6 +354,7 @@ def export_excel(document: str | None = None):
             else:
                 for ci, rec in enumerate(records, data_col_start):
                     d = rec["data"]
+                    mult = multipliers[ci - data_col_start]
                     # Check if field was corrected
                     corrected = corr_index.get((doc_name, field_path if isinstance(field_path, str) else ""))
 
@@ -345,11 +362,11 @@ def export_excel(document: str | None = None):
                         val = 0.0
                     else:
                         raw = _get(d, field_path)
-                        val = _num(raw)
+                        val = _num(raw) * mult
 
                     if corrected:
                         try:
-                            val = float(corrected["valor_correto"])
+                            val = float(corrected["valor_correto"]) * mult
                         except (ValueError, TypeError):
                             pass
 

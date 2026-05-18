@@ -273,8 +273,16 @@ class TechFinExtractorAgent(PythonModel):
             with open(depara_path) as f:
                 depara_data = json.load(f)
             self.depara_section = build_depara_section(depara_data)
+            # Extract detalhe_comum fields for anti-duplication post-processing
+            self._detalhe_comum = {}
+            for path, entry in depara_data.items():
+                if entry.get("tipo") == "detalhe_comum":
+                    group = path.split(".")[0]
+                    field = path.split(".", 1)[1]
+                    self._detalhe_comum.setdefault(group, []).append(field)
         else:
             self.depara_section = ""
+            self._detalhe_comum = {}
 
         # Regras de classificação contábil de arquivo separado
         regras_path = context.artifacts.get("regras_classificacao")
@@ -400,6 +408,50 @@ class TechFinExtractorAgent(PythonModel):
         },
     }
 
+    def _postprocess_anti_duplicacao(self, result):
+        """Remove dupla contagem de campos marcados como detalhe_comum no depara.
+
+        Se a soma dos sub-itens de um grupo excede o total extraído (outros_*
+        daria negativo), itera nos campos detalhe_comum do grupo, zerando o de
+        maior valor primeiro, até que soma ≤ total. Depois _postprocess_outros
+        recalcula outros_* como resíduo."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        for group_name, cfg in self._GROUPS_WITH_OUTROS.items():
+            grp = result.get(group_name)
+            if not isinstance(grp, dict):
+                continue
+            total_val = grp.get(cfg["total"]) or 0
+            if total_val <= 0:
+                continue
+            # Soma dos específicos (sem outros_*)
+            specific_sum = sum(grp.get(f) or 0 for f in cfg["specific"])
+            # Se específicos já excedem o total, outros_* seria negativo → dupla contagem
+            if specific_sum <= total_val:
+                continue
+            # Get detalhe_comum fields for this group, sorted by value descending
+            suspects = self._detalhe_comum.get(group_name, [])
+            if not suspects:
+                continue
+            suspects_sorted = sorted(suspects, key=lambda f: abs(grp.get(f) or 0), reverse=True)
+            for field in suspects_sorted:
+                val = grp.get(field) or 0
+                if abs(val) < 1:
+                    continue
+                postprocessed = result.setdefault("_postprocessed", [])
+                postprocessed.append({
+                    "campo": f"{group_name}.{field}",
+                    "original": val,
+                    "corrigido": 0,
+                    "motivo": f"Provável dupla contagem com {cfg['specific']}: zerado (detalhe_comum)",
+                })
+                grp[field] = 0
+                # Recompute and check
+                specific_sum = sum(grp.get(f) or 0 for f in cfg["specific"])
+                if specific_sum <= total_val:
+                    break
+        return result
+
     @classmethod
     def _postprocess_outros(cls, result):
         """Recalcula campos outros_* como resíduo (total - soma dos específicos)
@@ -424,6 +476,13 @@ class TechFinExtractorAgent(PythonModel):
             current_total = specific_sum + current_outros
             # Só corrige se: (a) diferença relevante (>1) E (b) resíduo não-negativo
             if abs(current_total - total_val) > 1 and computed_outros >= 0:
+                postprocessed = result.setdefault("_postprocessed", [])
+                postprocessed.append({
+                    "campo": f"{group_name}.{cfg['outros']}",
+                    "original": current_outros,
+                    "corrigido": round(computed_outros, 2),
+                    "motivo": f"Recalculado como resíduo: {cfg['total']} - soma específicos",
+                })
                 grp[cfg["outros"]] = round(computed_outros, 2)
         return result
 
@@ -468,27 +527,134 @@ class TechFinExtractorAgent(PythonModel):
                 dre["outras_receitas_despesas_operacionais"] = 0.0
 
         # (2) total_despesas_operacionais = soma dos componentes
+        postprocessed = result.get("_postprocessed", [])
         components_sum = sum(dre.get(f) or 0 for f in cls._DRE_DESP_OP_COMPONENTES)
         current_total = dre.get("total_despesas_operacionais") or 0
         if abs(current_total - components_sum) > 1:
+            postprocessed.append({
+                "campo": "dre.total_despesas_operacionais",
+                "original": current_total,
+                "corrigido": round(components_sum, 2),
+                "motivo": "Recalculado: soma dos componentes de despesas operacionais",
+            })
             dre["total_despesas_operacionais"] = round(components_sum, 2)
 
-        # (3) Checar sinal de provisao_imposto_de_renda via cascata
+        # (2a) Corrige totais cujos componentes estão zerados — LLM mapeou
+        # o item direto no total em vez do componente (de-para ignorado).
+        # Se total > 0 e TODOS os componentes = 0, move total → componente primário.
+        # IMPORTANTE: roda ANTES da cascata para que despesas_financeiras,
+        # total_receitas_financeiras etc. estejam corretos.
+        _TOTAL_TO_PRIMARY = {
+            "despesas_financeiras": {
+                "primary": "encargos_financeiros",
+                "components": ["encargos_financeiros", "descontos_concedidos", "variacao_cambial_nao_paga"],
+            },
+            "total_receitas_financeiras": {
+                "primary": "receitas_financeiras",
+                "components": ["receitas_financeiras", "variacao_cambial_nao_recebida"],
+            },
+            "receita_operacional_bruta": {
+                "primary": "receita_venda_produto_mercadoria",
+                "components": ["receita_venda_produto_mercadoria", "receita_servicos_arrendamento"],
+            },
+            "total_deducoes": {
+                "primary": "impostos_incidentes_sobre_vendas",
+                "components": ["vendas_anuladas", "abatimentos", "impostos_incidentes_sobre_vendas"],
+            },
+            "total_custo": {
+                "primary": "custo_servicos_produtos_mercadorias_vendidas",
+                "components": ["custo_servicos_produtos_mercadorias_vendidas", "superveniencias_ativas"],
+            },
+        }
+        for total_field, cfg in _TOTAL_TO_PRIMARY.items():
+            total_val = dre.get(total_field) or 0
+            if abs(total_val) < 1:
+                continue
+            comp_sum = sum(abs(dre.get(c) or 0) for c in cfg["components"])
+            if comp_sum < 1:
+                # All components are zero but total has value → push down to primary
+                postprocessed.append({
+                    "campo": f"dre.{cfg['primary']}",
+                    "original": 0,
+                    "corrigido": total_val,
+                    "motivo": f"Movido de dre.{total_field} (componentes zerados)",
+                })
+                dre[cfg["primary"]] = total_val
+            # Recalculate total from components
+            new_total = sum(dre.get(c) or 0 for c in cfg["components"])
+            if abs(total_val - new_total) > 0.01:
+                postprocessed.append({
+                    "campo": f"dre.{total_field}",
+                    "original": total_val,
+                    "corrigido": round(new_total, 2),
+                    "motivo": "Recalculado: soma dos componentes",
+                })
+            dre[total_field] = round(new_total, 2)
+
+        # (2b) Recalcula campos-cascata da DRE — soma simples respeitando
+        # sinais do documento (Regra 22). Roda DEPOIS de _TOTAL_TO_PRIMARY.
+        # Fase 1: cascata até LAIR
+        _CASCADE_PHASE1 = [
+            ("receita_operacional_liquida", ["receita_operacional_bruta", "total_deducoes", "incentivos_a_exportacoes"]),
+            ("lucro_bruto", ["receita_operacional_liquida", "total_custo"]),
+            ("lucro_operacional", ["lucro_bruto", "total_despesas_operacionais"]),
+            ("lucro_financeiro", ["lucro_operacional", "despesas_financeiras", "total_receitas_financeiras"]),
+            ("lucro_antes_imposto_de_renda", ["lucro_financeiro", "resultado_de_equivalencia_patrimonial", "receita_nao_operacional", "despesa_nao_operacional", "saldo_correcao_monetaria", "resultado_alienacao_ativos"]),
+        ]
+
+        def _recalc(field, components):
+            calc = sum(dre.get(f) or 0 for f in components)
+            has_inputs = any(abs(dre.get(f) or 0) > 0 for f in components)
+            old_val = dre.get(field) or 0
+            if has_inputs and abs(old_val - calc) > 0.01:
+                desc = " + ".join(components)
+                postprocessed.append({
+                    "campo": f"dre.{field}",
+                    "original": old_val,
+                    "corrigido": round(calc, 2),
+                    "motivo": f"Recalculado: {desc}",
+                })
+            if has_inputs:
+                dre[field] = round(calc, 2)
+
+        for field, components in _CASCADE_PHASE1:
+            _recalc(field, components)
+
+        # (3) Checar sinal de provisao_imposto_de_renda via cascata (soma simples)
+        # Roda ENTRE fase 1 e fase 2 para que LAIR esteja correto e
+        # lucro_antes_participacoes use o IRPJ com sinal corrigido.
         lair = dre.get("lucro_antes_imposto_de_renda") or 0
         provisao = dre.get("provisao_imposto_de_renda") or 0
         csll = dre.get("csll") or 0
+        ll_extraido = dre.get("lucro_liquido") or 0
         part_grat = dre.get("participacoes_gratificacoes_estatutarias") or 0
         part_min = dre.get("participacao_minoritarios") or 0
-        ll = dre.get("lucro_liquido") or 0
 
-        if lair > 0 and ll > 0 and abs(provisao) > 1:
-            expected_default = lair - provisao - csll - part_grat - part_min
-            expected_flipped = lair + provisao - csll - part_grat - part_min
-            # Se o sinal atual não bate mas o oposto bate (dentro de 1% do LL)
-            tolerance = max(1.0, abs(ll) * 0.01)
-            if (abs(expected_default - ll) > tolerance
-                and abs(expected_flipped - ll) < tolerance):
+        if abs(ll_extraido) > 0 and abs(provisao) > 1:
+            expected_default = lair + provisao + csll + part_grat + part_min
+            expected_flipped = lair + (-provisao) + csll + part_grat + part_min
+            tolerance = max(1.0, abs(ll_extraido) * 0.01)
+            if (abs(expected_default - ll_extraido) > tolerance
+                and abs(expected_flipped - ll_extraido) < tolerance):
+                postprocessed.append({
+                    "campo": "dre.provisao_imposto_de_renda",
+                    "original": provisao,
+                    "corrigido": round(-provisao, 2),
+                    "motivo": "Sinal invertido para bater com cascata LL (soma simples)",
+                })
                 dre["provisao_imposto_de_renda"] = round(-provisao, 2)
+
+        # Fase 2: cascata pós-IRPJ até lucro_liquido
+        _CASCADE_PHASE2 = [
+            ("lucro_antes_participacoes", ["lucro_antes_imposto_de_renda", "provisao_imposto_de_renda", "csll"]),
+            ("lucro_antes_participacao_minoritaria", ["lucro_antes_participacoes", "participacoes_gratificacoes_estatutarias"]),
+            ("lucro_liquido", ["lucro_antes_participacao_minoritaria", "participacao_minoritarios"]),
+        ]
+        for field, components in _CASCADE_PHASE2:
+            _recalc(field, components)
+
+        if postprocessed:
+            result["_postprocessed"] = postprocessed
 
         return result
 
@@ -605,6 +771,7 @@ class TechFinExtractorAgent(PythonModel):
                 # Pós-processamento: corrige inconsistências aritméticas do LLM.
                 # (a) outros_* recalculado como resíduo do grupo (AC/ANC/PC/PNC)
                 # (b) DRE: total_despesas_operacionais = soma componentes; sinal IRPJ
+                parsed = [self._postprocess_anti_duplicacao(r) for r in parsed]
                 parsed = [self._postprocess_outros(r) for r in parsed]
                 parsed = [self._postprocess_cascata_dre(r) for r in parsed]
                 usage_summary = {

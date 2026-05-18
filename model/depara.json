@@ -47,13 +47,14 @@
       "Empréstimos",
       "Títulos de capitalização",
       "Consórcio em andamento",
-      "Consórcios."
+      "Consórcios",
+      "banana",
+      "Disponibilidades"
     ]
   },
   "ativo_circulante.titulos_a_receber": {
     "conceito": "O que clientes devem por vendas a prazo",
     "aliases": [
-      "Contas a receber",
       "cartao de credito",
       "TÍTULOS A RECEBER",
       "cheque pre datado",
@@ -109,7 +110,7 @@
       "Provisão p crédito liquidação duvidosa",
       "(-)PCLD",
       "(-)PDD",
-      "(-)Provisão para devedores duvidosos."
+      "(-)Provisão para devedores duvidosos"
     ]
   },
   "ativo_circulante.estoques": {
@@ -125,17 +126,30 @@
       "Terrenos a comercializar",
       "ESTOQUE REBANHO BOVINO",
       "piscicultura em formacao",
-      "CULTURAS TEMPORARIAS EM FORMAÇÃO."
+      "CULTURAS TEMPORARIAS EM FORMAÇÃO",
+      "Estoques",
+      "Estoques concluídos e em construção",
+      "Estoques em poder de terceiros",
+      "Estoques de Produtos Acabados",
+      "Estoques de Produtos em fabricação"
     ]
   },
   "ativo_circulante.adiantamentos": {
     "conceito": "Valores pagos antecipadamente a terceiros",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "ativo_circulante.estoques",
+      "ativo_circulante.titulos_a_receber"
+    ],
     "aliases": [
       "CREDITO COM FORNECEDORES",
       "ADTO A FORNECEDORES",
       "FORNECEDORES DIVERSOS",
       "Adiantamento a fornecedor",
-      "Adiantamento a fornecedores."
+      "Adiantamento a fornecedores",
+      "Adiantamentos de estoques",
+      "Adiantamentos de importação",
+      "Adiantamentos para compra de estoques"
     ]
   },
   "ativo_circulante.impostos_a_recuperar": {
@@ -179,7 +193,7 @@
       "Tributos a recuperar/compensar",
       "Tributos e Contribuições a Compensar",
       "Tributos e Contribuições a Recuperar",
-      "Tributos a compensar."
+      "Tributos a compensar"
     ]
   },
   "ativo_circulante.outros_ativos_circulantes": {
@@ -206,7 +220,14 @@
       "Adiantamento de 13º salário",
       "Adiantamento de férias",
       "Créditos de funcionários",
-      "Outras Contas Operacionais."
+      "Outras Contas Operacionais",
+      "Adiantamentos a credores",
+      "Despesas pagas antecipadamente",
+      "Adiantamentos a empregados",
+      "Adiantamentos a funcionários",
+      "Adiantamentos a funcionários / pró labore",
+      "Adiantamentos de viagens",
+      "Adiantamentos"
     ]
   },
   "ativo_circulante.conta_corrente_socios_control_colig": {
@@ -219,6 +240,7 @@
       "antecipacao de dividendos",
       "dividendos e juros sobre capital proprio a receber",
       "conta corrente de socios",
+      "antecipacao de lucros",
       "adiantamento de lucros",
       "valores a receber de partes relacionadas",
       "LUCROS DISTRIBUIDOS NO EXERCICIO",
@@ -239,6 +261,7 @@
       "Créditos com Empresas Ligadas",
       "Sociedades ligadas",
       "Adiantamento a sócios",
+      "Adiantamentos a sócios",
       "Contas a receber de partes relacionadas",
       "Créditos com sócios",
       "Créditos de pessoas ligadas - Mútuo",
@@ -249,25 +272,19 @@
       "Empréstimos a sócios e diretores",
       "Empréstimos a terceiros",
       "Mútuos com partes relacionadas",
-      "Partes relaciondas."
+      "Partes relaciondas"
     ]
   },
   "ativo_circulante.outros_ativos_financeiros": {
     "conceito": "Aplicações financeiras, títulos e valores mobiliários com restrição de saque ou natureza de investimento",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "ativo_circulante.disponibilidades",
+      "ativo_circulante.outros_ativos_circulantes"
+    ],
     "aliases": [
       "Instrumentos financeiros",
-      "Instrumentos Financeiros Derivativos",
-      "Títulos e valores mobiliários",
-      "Títulos e valores mobiliários e outros ativos financeiros",
-      "Aplicações financeiras",
-      "Aplicações financeiras de liquidez imediata",
-      "Aplicações em títulos e valores mobiliários",
-      "Certificado de depósito bancário",
-      "CDB",
-      "Fundo de renda fixa",
-      "Letras financeiras do tesouro",
-      "Títulos do tesouro",
-      "Valores mobiliários."
+      "Instrumentos Financeiros Derivativos"
     ]
   },
   "ativo_nao_circulante.titulos_a_receber": {
@@ -315,20 +332,25 @@
       "(-)Serviços executados a faturar",
       "(-)PCLD",
       "(-)PDD",
-      "(-)Provisão para devedores duvidosos."
+      "(-)Provisão para devedores duvidosos"
     ]
   },
   "ativo_nao_circulante.estoques": {
     "conceito": "Estoque estratégico de longo prazo",
     "aliases": [
-      "Imóveis a comercializar."
+      "Imóveis a comercializar"
     ]
   },
   "ativo_nao_circulante.adiantamentos": {
     "conceito": "Adiantamentos a fornecedores de longo prazo",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "ativo_nao_circulante.estoques",
+      "ativo_nao_circulante.outros_realizavel_a_longo_prazo"
+    ],
     "aliases": [
       "Adiantamento a fornecedor",
-      "Adiantamento a fornecedores."
+      "Adiantamento a fornecedores"
     ]
   },
   "ativo_nao_circulante.impostos_a_recuperar": {
@@ -377,14 +399,19 @@
       "Diferido",
       "Ativo fiscal corrente",
       "Tributos e Contribuições a Compensar",
-      "Tributos e Contribuições a Recuperar."
+      "Tributos e Contribuições a Recuperar"
     ]
   },
   "ativo_nao_circulante.despesas_pagas_antecipadamente": {
     "conceito": "Custos pagos com benefício de longo prazo",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "ativo_nao_circulante.outros_realizavel_a_longo_prazo"
+    ],
     "aliases": [
       "Despesas antecipadas",
-      "Despesas pagas antecipadas."
+      "Despesas pagas antecipadas",
+      "Despesas pagas antecipadamente"
     ]
   },
   "ativo_nao_circulante.conta_corrente_socios_control_colig": {
@@ -399,6 +426,7 @@
       "antecipacao de dividendos",
       "dividendos e juros sobre capital proprio a receber",
       "conta corrente de socios",
+      "antecipacao de lucros",
       "adiantamento de lucros",
       "valores a receber de partes relacionadas",
       "LUCROS DISTRIBUIDOS NO EXERCICIO",
@@ -419,6 +447,7 @@
       "Créditos com Empresas Ligadas",
       "Sociedades ligadas",
       "Adiantamento a sócios",
+      "Adiantamentos a sócios",
       "Contas a receber de partes relacionadas",
       "Créditos com sócios",
       "Créditos de pessoas ligadas - Mútuo",
@@ -429,7 +458,7 @@
       "Empréstimos a sócios e diretores",
       "Empréstimos a terceiros",
       "Mútuos com partes relacionadas",
-      "Partes relaciondas."
+      "Partes relaciondas"
     ]
   },
   "ativo_nao_circulante.outros_realizavel_a_longo_prazo": {
@@ -460,19 +489,24 @@
       "Outros",
       "Outros ativos realizáveis a longo prazo",
       "Outros créditos a receber a longo prazo",
-      "Realizável de longo prazo."
+      "Realizável de longo prazo",
+      "Adiantamentos",
+      "Adiantamentos a empregados",
+      "Adiantamentos a funcionários",
+      "Adiantamentos a funcionários / pró labore",
+      "Adiantamentos a Terceiros",
+      "Adiantamentos de viagens",
+      "Adiantamentos Diversos",
+      "Ativo biológico"
     ]
   },
   "ativo_permanente.investimentos": {
     "conceito": "Dinheiro em bens não operacionais",
     "aliases": [
-      "TITULOS DE CAPITALIZACAO",
-      "Títulos e valores mobiliários",
-      "Consórcio em andamento",
-      "Consórcios",
-      "Empréstimos",
       "partic. em sociedades coligadas/controla",
       "PARTICIPACAO NA EMPRESA",
+      "Investimentos em coligadas e controladas",
+      "Investimentos em outras empresas",
       "Participações",
       "Participações societárias",
       "Propriedades para investimento",
@@ -480,7 +514,8 @@
       "INVESTIMENTOS LONGO PRAZO",
       "participacao em consorcios",
       "Propriedades para investimentos",
-      "Outros investimentos permanentes."
+      "Investimentos",
+      "Outros investimentos permanentes"
     ]
   },
   "ativo_permanente.imobilizado": {
@@ -491,13 +526,11 @@
       "terrenos",
       "Terras e terrenos",
       "DEP E EXAUST ACUM",
-      "depreciações",
-      "amortizações e exaustão acumulada",
+      "depreciações, amortizações e exaustão acumulada",
       "DEP ACUM VEICULOS MAQS E EQUIPS",
       "depreciacao acumulada outras imobilizacoes",
-      "depreciações",
-      "amort. e exaus.",
-      "Depreciação."
+      "depreciações, amort. e exaus.",
+      "Depreciação"
     ]
   },
   "ativo_permanente.intangivel_diferido": {
@@ -510,7 +543,7 @@
       "Ativos intangíveis",
       "Intangíveis",
       "Intangível",
-      "Goodwill."
+      "Goodwill"
     ]
   },
   "passivo_circulante.fornecedores": {
@@ -533,7 +566,7 @@
       "Fornecedores no exterior",
       "Fornecedores no país",
       "Fornecedores/credores",
-      "Fornecedores - Grupo."
+      "Fornecedores - Grupo"
     ]
   },
   "passivo_circulante.financiamentos_com_instituicoes_de_credito": {
@@ -557,6 +590,7 @@
       "Títulos descontados",
       "(-) encargos a apropriar",
       "(-) encargos financeiros a apropriar",
+      "Arrendamento mercantil",
       "Bancos conta empréstimo",
       "Bancos conta empréstimos",
       "Bancos conta financiamento",
@@ -570,8 +604,7 @@
       "Empréstimos e financiamentos",
       "Empréstimos e financiamentos a pagar",
       "Empréstimos e financiamentos bancários",
-      "Empréstimos",
-      "financiamentos e debêntures",
+      "Empréstimos, financiamentos e debêntures",
       "encargos a apropriar",
       "encargos financeiros a apropriar",
       "Financiamento a construção",
@@ -582,14 +615,14 @@
       "Risco sacado pagar",
       "empréstimos de curto prazo",
       "Empréstimos",
-      "Empréstimos CP."
+      "Empréstimos CP"
     ]
   },
   "passivo_circulante.salarios_contribuicoes": {
     "conceito": "Obrigações trabalhistas e encargos",
     "aliases": [
       "obrigacoes sociais parceladas",
-      "OBRIGAÇÕES C/PESSOAL E SOCIAIS",
+      "OBRIGAÇÕES CPESSOAL E SOCIAIS",
       "OBRIGAÇÕES SOCIAIS",
       "Enc Sociais Recolher",
       "provisão para férias e encargos",
@@ -621,8 +654,7 @@
       "Salários e encargos a pagar",
       "Salários e encargos a recolher",
       "Salários e ordenados a pagar",
-      "Salários",
-      "provisões e contribuições sociais."
+      "Salários, provisões e contribuições sociais"
     ]
   },
   "passivo_circulante.tributos": {
@@ -638,8 +670,8 @@
       "Prov CSLL a recolher",
       "Prov IRPJ a recolher",
       "PROVISAO Para CSLL",
-      "PROVISÃO P/CONTRIB SOCIAL",
-      "PROVISÃO P/IMPOSTO DE RENDA",
+      "PROVISÃO PCONTRIB SOCIAL",
+      "PROVISÃO PIMPOSTO DE RENDA",
       "IRRF A COMPENSAR",
       "CSLL",
       "COFINS",
@@ -681,21 +713,22 @@
       "Parcelamentos federais a recolher",
       "Parcelamento Previdenciário",
       "Impostos parcelados",
-      "Parcelamento especial."
+      "Parcelamento especial"
     ]
   },
   "passivo_circulante.adiantamentos": {
     "conceito": "Recebimento antecipado de clientes",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "passivo_circulante.outros_passivos_circulante",
+      "passivo_circulante.fornecedores"
+    ],
     "aliases": [
       "CREDITO DE CLIENTES",
       "antecipacoes de clientes",
       "Adiantamento de clientes em garantia financeira",
       "Adiantamento de clientes",
-      "Adiantamentos de clientes",
-      "Adiantamentos recebidos.",
-      "Parceiros e outros depósitos",
-      "Depósitos de parceiros",
-      "Outros depósitos de clientes"
+      "Adiantamentos de clientes"
     ]
   },
   "passivo_circulante.conta_corrente_socios_coligadas_controladas": {
@@ -743,7 +776,7 @@
       "Sócios conta administradores",
       "Sócios conta corrente",
       "Sócios conta empréstimo",
-      "Sócios conta particular."
+      "Sócios conta particular"
     ]
   },
   "passivo_circulante.outros_passivos_circulante": {
@@ -770,7 +803,8 @@
       "Débitos diversos",
       "Outras contas",
       "Outras contas a pagar",
-      "Outras obrigações."
+      "Outras obrigações",
+      "Adiantamentos recebidos"
     ]
   },
   "passivo_circulante.provisoes": {
@@ -783,15 +817,20 @@
       "Provisões diversas",
       "Provisões para contingências",
       "Provisões técnicas de operações de assistência a saúde",
-      "Provisão para garantia de produtos."
+      "Provisão para garantia de produtos"
     ]
   },
   "passivo_circulante.outros_passivos_financeiros": {
     "conceito": "Dívidas com juros não bancárias",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "passivo_circulante.outros_passivos_circulante",
+      "passivo_circulante.financiamentos_com_instituicoes_de_credito"
+    ],
     "aliases": [
       "Instrumentos financeiros",
       "Instrumentos financeiros derivativos",
-      "obrigacoes financeiras."
+      "obrigacoes financeiras"
     ]
   },
   "passivo_nao_circulante.fornecedores": {
@@ -808,14 +847,14 @@
       "Fornecedores MI",
       "Fornecedores no exterior",
       "Fornecedores/credores",
-      "Fornecedores gerais."
+      "Fornecedores gerais"
     ]
   },
   "passivo_nao_circulante.financiamentos_com_instituicoes_de_credito": {
     "conceito": "Empréstimos bancários de longo prazo",
     "aliases": [
       "Agrupar contas da categoria empréstimos bancários de LP caso apareçam com nomenclaturas idênticas ao circulante",
-      "mas com vencimento > 12 meses."
+      "mas com vencimento > 12 meses"
     ]
   },
   "passivo_nao_circulante.tributos": {
@@ -860,19 +899,25 @@
       "Parcelamentos de tributos",
       "OBRIG FISC E SOC A REC PARC",
       "PROVISÃO TRIBUTOS DIFERIDOS",
-      "Provisão de Impostos s/ Reavaliação."
+      "Provisões de impostos",
+      "Provisão de Impostos s/ Reavaliação"
     ]
   },
   "passivo_nao_circulante.adiantamentos": {
     "conceito": "Adiantamento de clientes com entrega a longo prazo",
+    "tipo": "detalhe_comum",
+    "pai_provavel": [
+      "passivo_nao_circulante.outros_passivos_nao_circulantes"
+    ],
     "aliases": [
       "Adiantamento de clientes em garantia financeira",
-      "Adiantamentos de clientes."
+      "Adiantamentos de clientes"
     ]
   },
   "passivo_nao_circulante.conta_corrente_socios_coligadas_controladas": {
     "conceito": "Mútuos passivos a longo prazo",
     "aliases": [
+      "Operações com partes relacionadas",
       "Consórcios de empresas",
       "OBRIGAÇÕES BANCÁRIAS",
       "obrigacoes financeiras",
@@ -885,6 +930,7 @@
       "EMPRESTIMOS CAIXA ECONOMICA FEDERAL",
       "(-) encargos a apropriar",
       "(-) encargos financeiros a apropriar",
+      "Arrendamento mercantil",
       "Bancos conta empréstimo",
       "Bancos conta empréstimos",
       "Bancos conta financiamento",
@@ -896,8 +942,7 @@
       "Empréstimos CP",
       "Empréstimos e financiamentos",
       "Empréstimos e financiamentos bancários",
-      "Empréstimos",
-      "financiamentos e debêntures",
+      "Empréstimos, financiamentos e debêntures",
       "encargos a apropriar",
       "encargos financeiros a apropriar",
       "Financiamento a construção",
@@ -947,7 +992,7 @@
       "Sócios conta administradores",
       "Sócios conta corrente",
       "Sócios conta empréstimo",
-      "Sócios conta particular."
+      "Sócios conta particular"
     ]
   },
   "passivo_nao_circulante.outros_passivos_nao_circulantes": {
@@ -988,7 +1033,7 @@
       "Outras obrigações",
       "Outros",
       "Outros passivos não circulantes",
-      "Outras Dividas Financeiras LP."
+      "Outras Dividas Financeiras LP"
     ]
   },
   "passivo_nao_circulante.provisoes": {
@@ -997,11 +1042,10 @@
       "Provisão para riscos cíveis e trabalhistas",
       "Obrigações Provisionadas",
       "Provisão de contingências",
-      "Provisões de impostos",
       "Provisões diversas",
       "Provisões",
       "Provisões técnicas de operações de assistência a saúde",
-      "Provisões para contingências."
+      "Provisões para contingências"
     ]
   },
   "patrimonio_liquido.capital_social": {
@@ -1013,24 +1057,19 @@
       "Capital social realizado",
       "Capital subscrito",
       "Capital social a integralizar",
-      "(-) capital a integralizar."
+      "(-) capital a integralizar"
     ]
   },
   "patrimonio_liquido.reserva_de_capital": {
     "conceito": "Dinheiro de terceiros sem origem no lucro",
     "aliases": [
       "Reserva de capital",
-      "Reservas de capital."
+      "Reservas de capital"
     ]
   },
   "patrimonio_liquido.reservas_de_lucro": {
-    "conceito": "Parte do lucro retido",
-    "aliases": [
-      "Reserva de lucros",
-      "Reserva de lucros a realizar",
-      "reserva de incentivos fiscais",
-      "Reservas legais."
-    ]
+    "conceito": "Parte do lucro retido (campo reservado — na prática, mapear aliases em lucros_ou_prejuizos_acumulados)",
+    "aliases": []
   },
   "patrimonio_liquido.reservas_de_reavaliacao": {
     "conceito": "Aumento contábil no valor de ativos (antigo)",
@@ -1038,14 +1077,14 @@
       "Ajustes de avaliação patrimonial",
       "Ajustes de reavaliação",
       "Reserva de reavaliação",
-      "Reservas de reavaliação."
+      "Reservas de reavaliação"
     ]
   },
   "patrimonio_liquido.outras_reservas": {
     "conceito": "Ajustes contábeis diversos",
     "aliases": [
       "Ajustes de Avaliação Patrimonial (AAP)",
-      "Outros resultados abrangentes."
+      "Outros resultados abrangentes"
     ]
   },
   "patrimonio_liquido.lucros_ou_prejuizos_acumulados": {
@@ -1076,33 +1115,59 @@
       "Superávits ou déficits acumulados",
       "Lucros/prejuizos acumulados",
       "(-) prejuizos acumulados",
-      "Prêmio de Emissão."
+      "Prêmio de Emissão",
+      "Reserva de lucros",
+      "Reserva de lucros a realizar",
+      "reserva de incentivos fiscais",
+      "Reservas legais"
     ]
   },
   "patrimonio_liquido.acoes_em_tesouraria": {
     "conceito": "Ações da própria empresa recompradas. (Lançar com sinal negativo)",
     "aliases": [
-      "Ações em tesouraria."
+      "Ações em tesouraria"
     ]
   },
   "dre.receita_venda_produto_mercadoria": {
     "conceito": "Receita de vendas de produtos e mercadorias",
     "aliases": [
-      "Receita de venda de produto",
-      "Receita de mercadoria",
-      "Venda de produtos",
-      "Venda de mercadorias",
+      "RECEITA DE VENDA DE MERCADORIA",
+      "IngressoReceita Bruta",
+      "VENDAS DE PRODUTOS",
+      "receita liquida",
+      "receita liquida das vendas",
+      "Receita Bruta",
+      "Receita de Incorporação de Imóveis",
+      "Receita Administração de Obras",
+      "Receita De Empreitada",
+      "Receita com operações de assistência à saúde",
       "Receita bruta de vendas",
-      "Receita de revenda"
+      "Total da receita de vendas e serviços",
+      "Venda de imóveis",
+      "Venda de imóveis a prazo",
+      "Venda de imóveis a vista",
+      "Receitas de aluguéis",
+      "Receita operacional bruta",
+      "Revendas",
+      "Revendas a prazo",
+      "Revendas a vista",
+      "Vendas de mercadorias",
+      "Venda de produtos e serviços",
+      "Venda mercado externo",
+      "Venda mercado interno",
+      "Vendas mercado externo",
+      "Vendas mercado interno",
+      "Vendas ME",
+      "Vendas MI",
+      "Revenda de mercadorias para mercado interno"
     ]
   },
   "dre.receita_servicos_arrendamento": {
     "conceito": "Receita de serviços e arrendamento",
     "aliases": [
-      "Receita de serviços",
-      "Receita de prestação de serviços",
-      "Receita de arrendamento",
-      "Arrendamento",
+      "receita servicos",
+      "Receita da Prestação de Serviços",
+      "Receita bruta de vendas e serviços",
       "Serviços prestados"
     ]
   },
@@ -1138,7 +1203,7 @@
       "Vendas ME",
       "Vendas MI",
       "Receitas de comissões",
-      "Revenda de mercadorias para mercado interno."
+      "Revenda de mercadorias para mercado interno"
     ]
   },
   "dre.vendas_anuladas": {
@@ -1148,7 +1213,7 @@
       "Vendas canceladas",
       "Cancelamentos e Devoluções",
       "Serviços Cancelados",
-      "Vendas Canceladas e Devoluções."
+      "Vendas Canceladas e Devoluções"
     ]
   },
   "dre.abatimentos": {
@@ -1159,7 +1224,7 @@
       "DESCONTOS DE CONTRATOS",
       "DESCONTOS CONDICIONAIS",
       "descontos concediros",
-      "DEVOLUCOES E DESCONTOS E ABATIMENTOS."
+      "DEVOLUCOES E DESCONTOS E ABATIMENTOS"
     ]
   },
   "dre.impostos_incidentes_sobre_vendas": {
@@ -1217,7 +1282,7 @@
       "ISS Sobre Vendas",
       "Serviços Cancelados",
       "Vendas Canceladas e Devoluções",
-      "DEVOLUCOES E DESCONTOS E ABATIMENTOS."
+      "DEVOLUCOES E DESCONTOS E ABATIMENTOS"
     ]
   },
   "dre.incentivos_a_exportacoes": {
@@ -1233,7 +1298,7 @@
     "aliases": [
       "Custos Exames Laboratoriais",
       "custos",
-      "Dispêndio custo das vendas",
+      "Dispêndiocusto das vendas",
       "CUSTO OPERACIONAL BRUTO",
       "CUSTO DO SERVIÇO DE TRANSPORTE",
       "CPV",
@@ -1257,7 +1322,7 @@
       "Custos dos Bens e Serviços",
       "Custos dos Produtos e Serviços Vendidos",
       "Custos dos Serviços Prestados",
-      "CSP."
+      "CSP"
     ]
   },
   "dre.superveniencias_ativas": {
@@ -1272,7 +1337,7 @@
   "dre.despesas_com_vendas": {
     "conceito": "Gastos para realizar a venda",
     "aliases": [
-      "Dispêndios Desp com Vendas",
+      "DispêndiosDesp com Vendas",
       "Com vendas",
       "Vendas",
       "Comerciais",
@@ -1280,13 +1345,13 @@
       "Despesas de comercialização",
       "Despesas c/vendas",
       "Despesas Comerciais",
-      "Despesas de vendas."
+      "Despesas de vendas"
     ]
   },
   "dre.provisao_para_devedores_duvidosos": {
     "conceito": "Perdas estimadas com calotes",
     "aliases": [
-      "+/- Provisões."
+      "'+/-Provisões"
     ]
   },
   "dre.outras_receitas_despesas_operacionais": {
@@ -1294,7 +1359,7 @@
     "aliases": [
       "Outras despesas operacionais",
       "OUTRAS RECEITAS OPERACIONAIS",
-      "RECEITAS EVENTUAIS."
+      "RECEITAS EVENTUAIS"
     ]
   },
   "dre.despesas_administrativas": {
@@ -1320,7 +1385,7 @@
       "Pessoal e Administradores",
       "Despesas com Fretes",
       "Receitas de Seguros",
-      "Receitas de Subvenção Fiscal."
+      "Receitas de Subvenção Fiscal"
     ]
   },
   "dre.despesas_tributarias": {
@@ -1328,38 +1393,43 @@
     "aliases": [
       "impostos",
       "OUTRAS DESPESAS TRIBUTARIAS",
-      "impostos",
-      "taxas e contribuições",
-      "Despesas Tributárias."
+      "impostos, taxas e contribuições",
+      "Despesas Tributárias"
     ]
   },
   "dre.despesas_gerais": {
     "conceito": "Outras despesas operacionais diversas do dia a dia",
     "aliases": [
       "despesas gerais",
-      "Despesas com veículos."
+      "Despesas com veículos"
     ]
   },
   "dre.depreciacao": {
     "conceito": "Desgaste físico de bens operacionais",
     "aliases": [
-      "Depreciacao s/ bens Imobilizado."
+      "Depreciação",
+      "Depreciacao sbens Imobilizad"
     ]
   },
   "dre.amortizacao": {
     "conceito": "Perda de valor de intangíveis operacionais",
     "aliases": [
-      "Amortização."
+      "Amortização"
     ]
   },
   "dre.encargos_financeiros": {
     "conceito": "Juros e encargos sobre dívidas e financiamentos",
     "aliases": [
-      "Encargos financeiros",
-      "Juros sobre empréstimos",
-      "Juros passivos",
-      "Encargos de financiamentos",
-      "Juros e encargos financeiros"
+      "DispêndiosDespesas Financeiras",
+      "Juros de aplicações",
+      "Juros Passivos",
+      "Despesas com Juros",
+      "depesas financeiras",
+      "Despesas bancárias",
+      "Tarifas bancárias",
+      "Despesas com financiamentos",
+      "Juros de financiamentos",
+      "DESPESAS TARIFA JUROS IOF"
     ]
   },
   "dre.descontos_concedidos": {
@@ -1373,17 +1443,17 @@
   "dre.variacao_cambial_nao_paga": {
     "conceito": "Variação cambial passiva ou correção monetária não paga",
     "aliases": [
-      "Variação cambial passiva",
-      "Variação cambial",
-      "Correção monetária passiva",
-      "Variações monetárias passivas",
-      "Variação cambial/Corr. Monetária não paga"
+      "Variações monetárias e cambiais, líquidas",
+      "Variação cambial líquida",
+      "Despesas de Variação Cambial",
+      "Variação Cambial Passiva",
+      "Variação Monetária Passia",
+      "Ajustes Cambiais"
     ]
   },
   "dre.despesas_financeiras": {
     "conceito": "Total das despesas financeiras (Encargos + Descontos concedidos + Variação cambial não paga)",
     "aliases": [
-      "Despesas financeiras",
       "Resultado financeiro negativo",
       "Total despesas financeiras"
     ]
@@ -1391,21 +1461,20 @@
   "dre.receitas_financeiras": {
     "conceito": "Receitas com juros, rendimentos e aplicações financeiras",
     "aliases": [
+      "Ingressos e Receitas Financeiras",
+      "Ingressos FinanceirosReceitas Financeiras",
       "Receitas financeiras",
-      "Juros ativos",
-      "Rendimentos de aplicações",
-      "Descontos obtidos",
-      "Juros e receitas financeiras",
-      "Receitas de aplicações financeiras"
+      "Juros Ativos",
+      "Receita de apliações financeiras",
+      "Juros e descontos",
+      "Descontos obtidos"
     ]
   },
   "dre.variacao_cambial_nao_recebida": {
     "conceito": "Variação cambial ativa ou correção monetária não recebida",
     "aliases": [
-      "Variação cambial ativa",
-      "Correção monetária ativa",
-      "Variações monetárias ativas",
-      "Variação cambial/Corr. Monetária não recebida"
+      "Variação Cambial Ativa",
+      "Variação Monetária Ativa"
     ]
   },
   "dre.resultado_de_equivalencia_patrimonial": {
@@ -1422,23 +1491,28 @@
       "Dividendos a pagar",
       "Lucro atribuído aos acionistas não controladores",
       "Juros sobre Capital Próprio",
-      "Reversão de Juros Sobre Capitais Próprios."
+      "Reversão de Juros Sobre Capitais Próprios"
     ]
   },
   "dre.receita_nao_operacional": {
     "conceito": "Receitas não operacionais (fora da atividade fim)",
     "aliases": [
-      "Receita não operacional",
-      "Receitas não operacionais",
-      "Outras receitas não operacionais"
+      "Ganhos de capital",
+      "Receita com Alienação de Imobilizado",
+      "receita com venda de veiculos",
+      "Outras receitas não operacionais",
+      "Ganho na venda de permanente",
+      "Receitas não Operacionais"
     ]
   },
   "dre.despesa_nao_operacional": {
     "conceito": "Despesas não operacionais (fora da atividade fim)",
     "aliases": [
-      "Despesa não operacional",
-      "Despesas não operacionais",
-      "Outras despesas não operacionais"
+      "custo venda imobilizado",
+      "baixa de imobilizado",
+      "Outras despesas não operacionais",
+      "Despesas não Operacionais",
+      "Perda na venda de permanente"
     ]
   },
   "dre.saldo_correcao_monetaria": {
@@ -1462,23 +1536,36 @@
   "dre.provisao_imposto_de_renda": {
     "conceito": "Provisão para Imposto de Renda (IRPJ). Inclui IR corrente e IR diferido",
     "aliases": [
-      "Provisão para imposto de renda",
-      "IRPJ",
+      "Corrente",
       "Imposto de renda",
-      "IR corrente",
-      "IR diferido",
-      "Provisão para IR",
-      "Imposto de renda e contribuição social"
+      "Despesas de IRPJ e CSLL",
+      "Provisão p/imposto de renda",
+      "Provisão imposto de renda",
+      "IRPJ/Contribuição social",
+      "IRPJ/CSLL",
+      "Imposto de Renda e Contribuição Social",
+      "Imposto de Renda e CSLL",
+      "Imposto de Renda Pessoa Jurídica",
+      "Provisão para Imposto de Renda",
+      "Tributos sobre Lucro",
+      "Imposto de renda e contribuição social corrente",
+      "Provisão para IRPJ",
+      "Diferido",
+      "I.R. e contribuição social diferidos",
+      "Imposto de Renda Diferidos",
+      "Imposto de renda e contribuição social diferido"
     ]
   },
   "dre.csll": {
     "conceito": "Contribuição Social sobre o Lucro Líquido. Inclui CSLL corrente e diferida",
     "aliases": [
       "CSLL",
-      "Contribuição social",
-      "Contribuição social sobre o lucro líquido",
-      "CSLL corrente",
-      "CSLL diferida"
+      "Contribuição Social",
+      "Contribuição Social sobre o Lucro",
+      "Provisão p/contribuição social",
+      "Provisão contribuição social",
+      "Provisão para CSLL",
+      "Contribuição Social Diferida"
     ]
   },
   "dre.participacoes_gratificacoes_estatutarias": {
@@ -1498,6 +1585,17 @@
       "Participação dos não controladores",
       "Participação minoritária",
       "Resultado atribuído a não controladores"
+    ]
+  },
+  "ativo_nao_circulante.investimentos": {
+    "conceito": "Dinheiro em bens não operacionais a longo prazo",
+    "aliases": [
+      "Títulos e ações",
+      "TITULOS DE CAPITALIZACAO",
+      "Títulos e valores mobiliários",
+      "Consórcio em andamento",
+      "Consórcios",
+      "Empréstimos"
     ]
   }
 }

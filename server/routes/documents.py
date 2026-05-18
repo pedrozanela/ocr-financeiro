@@ -13,11 +13,11 @@ def list_documents():
     rows = execute_sql(f"""
         SELECT
             document_name,
-            ANY_VALUE(razao_social) AS razao_social,
-            ANY_VALUE(cnpj) AS cnpj,
+            MAX(razao_social) AS razao_social,
+            MAX(cnpj) AS cnpj,
             MAX(periodo) AS periodo,
-            MAX(TRY_CAST(get_json_object(extracted_json, '$.ativo_total') AS DOUBLE)) AS ativo_total,
-            MAX(TRY_CAST(get_json_object(extracted_json, '$.dre.lucro_liquido') AS DOUBLE)) AS lucro_liquido
+            MAX((extracted_json->>'ativo_total')::numeric) AS ativo_total,
+            MAX((extracted_json->'dre'->>'lucro_liquido')::numeric) AS lucro_liquido
         FROM {RESULTS_TABLE}
         GROUP BY document_name
         ORDER BY document_name

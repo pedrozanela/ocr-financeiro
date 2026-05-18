@@ -11,7 +11,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install PyMuPDF --quiet
+# MAGIC %pip install PyMuPDF psycopg2-binary --quiet
 
 # COMMAND ----------
 
@@ -37,10 +37,17 @@ dbutils.widgets.text("extractor_endpoint", "extrator-financeiro")
 _cat = dbutils.widgets.get("catalog")
 _sch = dbutils.widgets.get("schema")
 
+dbutils.widgets.text("lakebase_host", "")
+dbutils.widgets.text("lakebase_db",   "ocr_financeiro")
+dbutils.widgets.text("lakebase_project", "ocr-financeiro")
+
 VOLUME_PATH        = dbutils.widgets.get("volume_path") or f"/Volumes/{_cat}/{_sch}/documentos_pdf"
 PDF_NAME           = dbutils.widgets.get("pdf_name").strip()
 DPI                = int(dbutils.widgets.get("dpi"))
 EXTRACTOR_ENDPOINT = dbutils.widgets.get("extractor_endpoint")
+LAKEBASE_HOST      = dbutils.widgets.get("lakebase_host").strip()
+LAKEBASE_DB        = dbutils.widgets.get("lakebase_db").strip()
+LAKEBASE_PROJECT   = dbutils.widgets.get("lakebase_project").strip()
 
 RESULTS_TABLE = f"{_cat}.{_sch}.resultados"
 FINAL_TABLE   = f"{_cat}.{_sch}.resultados_final"
@@ -61,6 +68,99 @@ EXTRACTOR_HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "applic
 
 PRICE_VISION_IN  = 3.0  / 1_000_000
 PRICE_VISION_OUT = 15.0 / 1_000_000
+
+print(f"Lakebase : {LAKEBASE_HOST or 'disabled (Delta only)'}")
+
+# ── Lakebase connection helper ────────────────────────────────────────────────
+_pg_conn = None
+
+def _get_pg():
+    global _pg_conn
+    if not LAKEBASE_HOST:
+        return None
+    if _pg_conn and not _pg_conn.closed:
+        try:
+            with _pg_conn.cursor() as c:
+                c.execute("SELECT 1")
+            return _pg_conn
+        except Exception:
+            _pg_conn = None
+
+    import psycopg2
+    from databricks.sdk import WorkspaceClient
+    w = WorkspaceClient()
+    endpoint_path = f"projects/{LAKEBASE_PROJECT}/branches/production/endpoints/primary"
+    if hasattr(w, "postgres"):
+        cred = w.postgres.generate_database_credential(endpoint=endpoint_path)
+        token = cred.token
+    else:
+        resp = w.api_client.do("POST", "/api/2.0/postgres/credentials", body={"endpoint": endpoint_path})
+        token = resp.get("token", "")
+    _pg_conn = psycopg2.connect(host=LAKEBASE_HOST, port=5432, dbname=LAKEBASE_DB,
+                                user=CURRENT_USER, password=token, sslmode="require")
+    _pg_conn.autocommit = True
+    return _pg_conn
+
+
+def pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, modelo_versao, modo):
+    conn = _get_pg()
+    if not conn:
+        return
+    from psycopg2.extras import Json as PgJson
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO resultados (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
+                token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                processado_em, modelo_versao, modo_extracao)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
+            ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
+                extracted_json = EXCLUDED.extracted_json, assessment_json = EXCLUDED.assessment_json,
+                token_usage_json = EXCLUDED.token_usage_json, razao_social = EXCLUDED.razao_social,
+                cnpj = EXCLUDED.cnpj, tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                moeda = EXCLUDED.moeda, escala_valores = EXCLUDED.escala_valores,
+                processado_em = NOW(), modelo_versao = EXCLUDED.modelo_versao,
+                modo_extracao = EXCLUDED.modo_extracao
+        """, (doc, te, per, PgJson(json.loads(ej.replace("''", "'"))),
+              PgJson(json.loads(aj.replace("''", "'"))),
+              PgJson(json.loads(uj.replace("''", "'"))),
+              rs, cnpj, td, moe, escv, modelo_versao, modo))
+
+
+def pg_upsert_documento(doc, text):
+    conn = _get_pg()
+    if not conn:
+        return
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO documentos (document_name, document_text, ingested_at, atualizado_em, atualizado_por)
+            VALUES (%s, %s, NOW(), NOW(), %s)
+            ON CONFLICT (document_name) DO UPDATE SET
+                document_text = EXCLUDED.document_text, atualizado_em = NOW(),
+                atualizado_por = EXCLUDED.atualizado_por
+        """, (doc, text, CURRENT_USER))
+
+
+def pg_sync_final(doc_names):
+    conn = _get_pg()
+    if not conn:
+        return
+    with conn.cursor() as cur:
+        for doc in doc_names:
+            cur.execute("""
+                INSERT INTO resultados_final
+                    (document_name, tipo_entidade, periodo, extracted_json,
+                     razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                     atualizado_em, atualizado_por)
+                SELECT document_name, tipo_entidade, periodo, extracted_json,
+                       razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                       NOW(), %s
+                FROM resultados WHERE document_name = %s
+                ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
+                    extracted_json = EXCLUDED.extracted_json, razao_social = EXCLUDED.razao_social,
+                    cnpj = EXCLUDED.cnpj, tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                    moeda = EXCLUDED.moeda, escala_valores = EXCLUDED.escala_valores,
+                    atualizado_em = NOW(), atualizado_por = EXCLUDED.atualizado_por
+            """, (f"job:{CURRENT_USER}", doc))
 
 if not PDF_NAME:
     dbutils.notebook.exit("pdf_name não informado")
@@ -337,6 +437,7 @@ def save_result(pdf_name: str, results: list, v_in: int, v_out: int):
                  '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
                  CURRENT_TIMESTAMP(), '{mv}', 'vision')
         """)
+        pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, mv, 'vision')
 
 
 # COMMAND ----------
@@ -382,6 +483,7 @@ try:
         WHEN NOT MATCHED THEN INSERT (document_name, document_text, ingested_at, atualizado_em, atualizado_por)
             VALUES ('{_doc_esc}', '{_text_esc}', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(), '{CURRENT_USER}')
     """)
+    pg_upsert_documento(PDF_NAME, vision_text)
 
     t_ext = time.time()
     results, _, _ = call_extractor(vision_text)
@@ -440,6 +542,7 @@ if success:
              s.razao_social, s.cnpj, s.tipo_demonstrativo, s.moeda, s.escala_valores,
              CURRENT_TIMESTAMP(), 'job:{CURRENT_USER}')
     """)
+    pg_sync_final([PDF_NAME])
     print(f"✓ resultados_final sincronizado para {PDF_NAME}")
 
 # COMMAND ----------

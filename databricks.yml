@@ -31,6 +31,9 @@ variables:
     default: "techfin-ocr-pat"
   app_sp_id:
     default: "5914cb1c-3156-41a7-b1ff-1aa9a0778977"
+  lakebase_host:
+    description: "Lakebase Postgres endpoint host"
+    default: ""
 
 workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/ocr-financeiro
@@ -45,6 +48,7 @@ targets:
       catalog: fevm_pzanela_classic_aws_catalog
       warehouse_id: "2cfb6ce796f96ba4"
       serverless_warehouse_id: "2cfb6ce796f96ba4"
+      lakebase_host: "ep-raspy-credit-d2j0p33d.database.us-east-1.cloud.databricks.com"
 
   # ── Ambientes do cliente ───────────────────────────────────────────────────
   fevm:
@@ -155,6 +159,7 @@ resources:
 
     batch_job:
       name: "ocr-financeiro-batch-job"
+      max_concurrent_runs: 10
       tasks:
         - task_key: batch
           notebook_task:
@@ -164,6 +169,9 @@ resources:
               schema: ${var.schema}
               volume_path: ""
               endpoint: ${var.endpoint_name}
+              lakebase_host: ${var.lakebase_host}
+              lakebase_db: "ocr_financeiro"
+              lakebase_project: "ocr-financeiro"
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
@@ -183,6 +191,9 @@ resources:
               schema: ${var.schema}
               volume_path: ""
               endpoint: ${var.endpoint_name}
+              lakebase_host: ${var.lakebase_host}
+              lakebase_db: "ocr_financeiro"
+              lakebase_project: "ocr-financeiro"
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
@@ -215,6 +226,7 @@ resources:
     # ── Vision OCR — Modo Vision ──────────────────────────────────────────────
     vision_extraction:
       name: "ocr-financeiro-vision-extraction"
+      max_concurrent_runs: 10
       tasks:
         - task_key: vision
           notebook_task:
@@ -225,6 +237,9 @@ resources:
               volume_path: ""
               extractor_endpoint: ${var.endpoint_name}
               pdf_name: ""
+              lakebase_host: ${var.lakebase_host}
+              lakebase_db: "ocr_financeiro"
+              lakebase_project: "ocr-financeiro"
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
@@ -260,6 +275,12 @@ resources:
       name: "ocr-financeiro"
       description: "Extrator de dados financeiros (BP + DRE) com revisao humana"
       source_code_path: .
+      resources:
+        - name: "postgres"
+          postgres:
+            branch: "projects/ocr-financeiro/branches/production"
+            database: "projects/ocr-financeiro/branches/production/databases/db-w3xq-63lbn7fhdv"
+            permission: "CAN_CONNECT_AND_CREATE"
       config:
         command:
           - python
@@ -287,6 +308,12 @@ resources:
             value: ${resources.jobs.batch_job.id}
           - name: VISION_JOB_ID
             value: ${resources.jobs.vision_extraction.id}
+          - name: LAKEBASE_HOST
+            value: ${var.lakebase_host}
+          - name: LAKEBASE_DB
+            value: "ocr_financeiro"
+          - name: LAKEBASE_PROJECT
+            value: "ocr-financeiro"
       permissions:
         - level: CAN_MANAGE
           user_name: ${workspace.current_user.userName}

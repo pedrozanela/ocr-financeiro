@@ -22,10 +22,17 @@ env:
     value: "ocr_financeiro"
   - name: OCR_ENDPOINT
     value: "extrator-financeiro"
-  # Jobs — atualizar com IDs gerados no bundle deploy
+  # Jobs — IDs do workspace fevm-pzanela-classic-aws
   - name: FEWSHOT_JOB_ID
-    value: ""
+    value: "403711838568059"
   - name: BATCH_JOB_ID
-    value: ""
+    value: "494297694677265"
   - name: VISION_JOB_ID
-    value: ""
+    value: "564671429208244"
+  # Lakebase
+  - name: LAKEBASE_HOST
+    value: "ep-raspy-credit-d2j0p33d.database.us-east-1.cloud.databricks.com"
+  - name: LAKEBASE_DB
+    value: "ocr_financeiro"
+  - name: LAKEBASE_PROJECT
+    value: "ocr-financeiro"

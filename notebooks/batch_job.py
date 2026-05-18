@@ -6,7 +6,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install pikepdf --quiet
+# MAGIC %pip install pikepdf psycopg2-binary --quiet
 
 # COMMAND ----------
 
@@ -20,11 +20,14 @@ import requests
 from pyspark.sql.functions import expr, concat_ws
 
 # Configuração via widgets (compatível com DABs e Serverless)
-dbutils.widgets.text("catalog",      "")
-dbutils.widgets.text("schema",       "ocr_financeiro")
-dbutils.widgets.text("volume_path",  "")
-dbutils.widgets.text("endpoint",     "extrator-financeiro")
-dbutils.widgets.text("pdf_name",     "")
+dbutils.widgets.text("catalog",       "")
+dbutils.widgets.text("schema",        "ocr_financeiro")
+dbutils.widgets.text("volume_path",   "")
+dbutils.widgets.text("endpoint",      "extrator-financeiro")
+dbutils.widgets.text("pdf_name",      "")
+dbutils.widgets.text("lakebase_host", "")
+dbutils.widgets.text("lakebase_db",   "ocr_financeiro")
+dbutils.widgets.text("lakebase_project", "ocr-financeiro")
 _cat = dbutils.widgets.get("catalog")
 _sch = dbutils.widgets.get("schema")
 
@@ -34,6 +37,9 @@ RESULTS_TABLE   = f"{_cat}.{_sch}.resultados"
 FINAL_TABLE     = f"{_cat}.{_sch}.resultados_final"
 SOURCE_TABLE    = f"{_cat}.{_sch}.documentos"
 OCR_ENDPOINT    = dbutils.widgets.get("endpoint")
+LAKEBASE_HOST   = dbutils.widgets.get("lakebase_host").strip()
+LAKEBASE_DB     = dbutils.widgets.get("lakebase_db").strip()
+LAKEBASE_PROJECT = dbutils.widgets.get("lakebase_project").strip()
 
 DATABRICKS_HOST = spark.conf.get("spark.databricks.workspaceUrl", "")
 if not DATABRICKS_HOST.startswith("http"):
@@ -50,6 +56,112 @@ CURRENT_USER = spark.sql("SELECT current_user()").collect()[0][0]
 print(f"Catalog  : {_cat}.{_sch}")
 print(f"Volume   : {VOLUME_PATH}")
 print(f"Endpoint : {OCR_ENDPOINT}")
+print(f"Lakebase : {LAKEBASE_HOST or 'disabled (Delta only)'}")
+
+# ── Lakebase connection helper ────────────────────────────────────────────────
+_pg_conn = None
+
+def _get_pg():
+    """Get or create a psycopg2 connection to Lakebase."""
+    global _pg_conn
+    if not LAKEBASE_HOST:
+        return None
+    if _pg_conn and not _pg_conn.closed:
+        try:
+            with _pg_conn.cursor() as c:
+                c.execute("SELECT 1")
+            return _pg_conn
+        except Exception:
+            _pg_conn = None
+
+    import psycopg2
+    from databricks.sdk import WorkspaceClient
+    w = WorkspaceClient()
+    endpoint_path = f"projects/{LAKEBASE_PROJECT}/branches/production/endpoints/primary"
+    if hasattr(w, "postgres"):
+        cred = w.postgres.generate_database_credential(endpoint=endpoint_path)
+        token = cred.token
+    else:
+        resp = w.api_client.do("POST", "/api/2.0/postgres/credentials", body={"endpoint": endpoint_path})
+        token = resp.get("token", "")
+    _pg_conn = psycopg2.connect(host=LAKEBASE_HOST, port=5432, dbname=LAKEBASE_DB,
+                                user=CURRENT_USER, password=token, sslmode="require")
+    _pg_conn.autocommit = True
+    return _pg_conn
+
+
+def pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, modo):
+    """Upsert into Lakebase resultados."""
+    conn = _get_pg()
+    if not conn:
+        return
+    from psycopg2.extras import Json as PgJson
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO resultados (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
+                token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                processado_em, modelo_versao, modo_extracao)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
+            ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
+                extracted_json = EXCLUDED.extracted_json,
+                assessment_json = EXCLUDED.assessment_json,
+                token_usage_json = EXCLUDED.token_usage_json,
+                razao_social = EXCLUDED.razao_social,
+                cnpj = EXCLUDED.cnpj,
+                tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                moeda = EXCLUDED.moeda,
+                escala_valores = EXCLUDED.escala_valores,
+                processado_em = NOW(),
+                modelo_versao = EXCLUDED.modelo_versao,
+                modo_extracao = EXCLUDED.modo_extracao
+        """, (doc, te, per, PgJson(json.loads(ej.replace("''", "'"))),
+              PgJson(json.loads(aj.replace("''", "'"))),
+              PgJson(json.loads(uj.replace("''", "'"))),
+              rs, cnpj, td, moe, escv, OCR_ENDPOINT, modo))
+
+
+def pg_upsert_documento(doc, text):
+    """Upsert into Lakebase documentos."""
+    conn = _get_pg()
+    if not conn:
+        return
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO documentos (document_name, document_text, ingested_at, atualizado_em, atualizado_por)
+            VALUES (%s, %s, NOW(), NOW(), %s)
+            ON CONFLICT (document_name) DO UPDATE SET
+                document_text = EXCLUDED.document_text,
+                atualizado_em = NOW(),
+                atualizado_por = EXCLUDED.atualizado_por
+        """, (doc, text, CURRENT_USER))
+
+
+def pg_sync_final(doc_names):
+    """Sync resultados_final from resultados for given documents."""
+    conn = _get_pg()
+    if not conn:
+        return
+    with conn.cursor() as cur:
+        for doc in doc_names:
+            cur.execute("""
+                INSERT INTO resultados_final
+                    (document_name, tipo_entidade, periodo, extracted_json,
+                     razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                     atualizado_em, atualizado_por)
+                SELECT document_name, tipo_entidade, periodo, extracted_json,
+                       razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                       NOW(), %s
+                FROM resultados WHERE document_name = %s
+                ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
+                    extracted_json = EXCLUDED.extracted_json,
+                    razao_social = EXCLUDED.razao_social,
+                    cnpj = EXCLUDED.cnpj,
+                    tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                    moeda = EXCLUDED.moeda,
+                    escala_valores = EXCLUDED.escala_valores,
+                    atualizado_em = NOW(),
+                    atualizado_por = EXCLUDED.atualizado_por
+            """, (f"job:{CURRENT_USER}", doc))
 
 # COMMAND ----------
 # MAGIC %md ## 1. Identificar PDFs novos
@@ -313,6 +425,7 @@ def save_result(pdf_name: str, results: list, modo_extracao: str = "ai_parse"):
                  '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
                  CURRENT_TIMESTAMP(), '{OCR_ENDPOINT}', '{modo}')
         """)
+        pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, modo)
 
 # COMMAND ----------
 # MAGIC %md ## 3. Processar PDFs novos (paralelo)
@@ -380,6 +493,7 @@ def process_one(pdf_name: str) -> dict:
             WHEN NOT MATCHED THEN INSERT (document_name, document_text, ingested_at, atualizado_em, atualizado_por)
                 VALUES ('{doc_esc}', '{text_esc}', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(), '{CURRENT_USER}')
         """)
+        pg_upsert_documento(pdf_name, text)
 
         # Filtro de seções financeiras: se o texto do ai_parse é muito grande,
         # tenta extrair apenas as seções de BP/DRE via markers PT/EN.
@@ -502,6 +616,7 @@ if successes:
              s.razao_social, s.cnpj, s.tipo_demonstrativo, s.moeda, s.escala_valores,
              CURRENT_TIMESTAMP(), 'job:{CURRENT_USER}')
     """)
+    pg_sync_final(successes)
     print(f"✓ resultados_final sincronizado para {len(successes)} documento(s)")
 
 # COMMAND ----------
@@ -531,5 +646,18 @@ if errors:
         print(f"  ✗ {name}: {err}")
 
 hard_errors = [(n, e) for n, e in errors if e != "no_text"]
+
+# Relatório estruturado (aparece em jobs/runs/get-output → notebook_output.result)
+exit_report = json.dumps({
+    "status": "error" if hard_errors else "ok",
+    "total": len(new_pdfs),
+    "success": len(successes),
+    "errors": [{"pdf": n, "error": e[:500]} for n, e in errors],
+    "stats": [{"pdf": s["pdf"], "status": s["status"], "time_s": s.get("time_total_s", 0),
+               "error": s.get("error_msg", "")[:500]} for s in stats],
+}, ensure_ascii=False)
+
 if hard_errors and len(hard_errors) > len(new_pdfs) // 2:
-    raise Exception(f"Mais da metade falhou ({len(hard_errors)}/{len(new_pdfs)})")
+    raise Exception(f"Mais da metade falhou ({len(hard_errors)}/{len(new_pdfs)})\n{exit_report}")
+
+dbutils.notebook.exit(exit_report)
