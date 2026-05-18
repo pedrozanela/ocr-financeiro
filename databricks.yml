@@ -119,6 +119,24 @@ resources:
           spec:
             client: "5"
 
+    setup_lakebase:
+      name: "ocr-financeiro-setup-lakebase"
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ./notebooks/setup_lakebase.py
+            base_parameters:
+              project_name: "ocr-financeiro"
+              database_name: "ocr_financeiro"
+              sp_client_id: ${var.app_sp_id}
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
     register_model:
       name: "ocr-financeiro-register-model"
       tasks:
