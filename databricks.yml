@@ -49,6 +49,15 @@ targets:
       warehouse_id: "2cfb6ce796f96ba4"
       serverless_warehouse_id: "2cfb6ce796f96ba4"
       lakebase_host: "ep-raspy-credit-d2j0p33d.database.us-east-1.cloud.databricks.com"
+    resources:
+      apps:
+        ocr_financeiro_app:
+          resources:
+            - name: "postgres"
+              postgres:
+                branch: "projects/ocr-financeiro/branches/production"
+                database: "projects/ocr-financeiro/branches/production/databases/db-w3xq-63lbn7fhdv"
+                permission: "CAN_CONNECT_AND_CREATE"
 
   # ── Ambientes do cliente ───────────────────────────────────────────────────
   fevm:
@@ -293,12 +302,6 @@ resources:
       name: "ocr-financeiro"
       description: "Extrator de dados financeiros (BP + DRE) com revisao humana"
       source_code_path: .
-      resources:
-        - name: "postgres"
-          postgres:
-            branch: "projects/ocr-financeiro/branches/production"
-            database: "projects/ocr-financeiro/branches/production/databases/db-w3xq-63lbn7fhdv"
-            permission: "CAN_CONNECT_AND_CREATE"
       config:
         command:
           - python
