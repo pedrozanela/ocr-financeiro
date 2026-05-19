@@ -166,6 +166,22 @@ else:
 
 conn.close()
 
+# Get the database resource ID (needed for app resource in databricks.yml)
+DATABASE_RESOURCE_ID = ""
+try:
+    resp = w.api_client.do("GET", f"/api/2.0/postgres/{branch_path}/databases")
+    for db in resp.get("databases", []):
+        db_name = db.get("name", "")
+        if db_name and "databricks-postgres" not in db_name:
+            DATABASE_RESOURCE_ID = db_name
+            break
+    if DATABASE_RESOURCE_ID:
+        print(f"✓ Database resource ID: {DATABASE_RESOURCE_ID}")
+    else:
+        print("⚠ Database resource ID não encontrado — use o CLI: databricks postgres list-databases ...")
+except Exception as e:
+    print(f"⚠ Não foi possível obter database resource ID: {e}")
+
 # COMMAND ----------
 
 # MAGIC %md
@@ -395,14 +411,16 @@ report = {
     "database": DATABASE,
     "host": LAKEBASE_HOST,
     "endpoint": endpoint_path,
+    "database_resource_id": DATABASE_RESOURCE_ID,
     "sp_configured": bool(SP_CLIENT_ID),
 }
 
 print("=" * 60)
 print("  Setup Lakebase concluído!")
-print(f"  Host:     {LAKEBASE_HOST}")
-print(f"  Database: {DATABASE}")
-print(f"  SP:       {SP_CLIENT_ID or 'não configurado'}")
+print(f"  Host:                {LAKEBASE_HOST}")
+print(f"  Database:            {DATABASE}")
+print(f"  Database Resource:   {DATABASE_RESOURCE_ID}")
+print(f"  SP:                  {SP_CLIENT_ID or 'não configurado'}")
 print("=" * 60)
 print()
 print("Próximos passos:")
