@@ -5,6 +5,35 @@
 # MAGIC Cria projeto Lakebase, database, tabelas e configura permissões do SP do app.
 # MAGIC Executar **uma vez** no primeiro deploy de cada ambiente.
 # MAGIC
+# MAGIC ## Passo a passo completo (tudo pela UI)
+# MAGIC
+# MAGIC ### Primeiro deploy (sem Lakebase)
+# MAGIC 1. No Databricks, vá em **Repos** → importe o repositório Git
+# MAGIC 2. Faça deploy do bundle pela UI (ou via Workflows → Jobs)
+# MAGIC 3. O app `ocr-financeiro` será criado e funcionará com Delta + SQL Warehouse
+# MAGIC
+# MAGIC ### Ativar Lakebase
+# MAGIC 4. Vá em **Workflows → Jobs → ocr-financeiro-setup-lakebase** → Run
+# MAGIC    - Parâmetro `sp_client_id`: deixe vazio na primeira execução
+# MAGIC    - Aguarde completar (~2 min)
+# MAGIC 5. No output do job, copie o valor de **Host** (ex: `ep-xxxxx.database.us-east-1.cloud.databricks.com`)
+# MAGIC 6. Vá em **Apps → ocr-financeiro → Settings**:
+# MAGIC    - Em **Service Principal**, copie o **Client ID** (ex: `5914cb1c-3156-41a7-b1ff-1aa9a0778977`)
+# MAGIC    - Em **Resources**, clique **Add Resource → Lakebase**:
+# MAGIC      - Project: `ocr-financeiro`
+# MAGIC      - Branch: `production`
+# MAGIC      - Permission: `CAN_CONNECT_AND_CREATE`
+# MAGIC    - Em **Environment Variables**, adicione:
+# MAGIC      - `LAKEBASE_HOST` = (o host copiado no passo 5)
+# MAGIC      - `LAKEBASE_DB` = `ocr_financeiro`
+# MAGIC      - `LAKEBASE_PROJECT` = `ocr-financeiro`
+# MAGIC 7. Rode o job **setup-lakebase** novamente, agora com o `sp_client_id` do passo 6
+# MAGIC    - Isso cria o role e permissões do SP no Lakebase
+# MAGIC 8. Re-deploy o app (clique **Deploy** na UI do app)
+# MAGIC
+# MAGIC ### Pronto!
+# MAGIC O app agora usa Lakebase. Correções manuais ficam ~50ms em vez de ~2s.
+# MAGIC
 # MAGIC **Pré-requisitos**: workspace com serverless habilitado.
 
 # COMMAND ----------
