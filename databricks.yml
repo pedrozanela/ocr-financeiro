@@ -138,6 +138,9 @@ resources:
               project_name: "ocr-financeiro"
               database_name: "ocr_financeiro"
               sp_client_id: ${var.app_sp_id}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              migrate_data: "true"
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED

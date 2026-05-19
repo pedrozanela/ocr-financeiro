@@ -53,10 +53,16 @@ from databricks.sdk import WorkspaceClient
 dbutils.widgets.text("project_name", "ocr-financeiro")
 dbutils.widgets.text("database_name", "ocr_financeiro")
 dbutils.widgets.text("sp_client_id", "")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema", "ocr_financeiro")
+dbutils.widgets.text("migrate_data", "true")
 
 PROJECT = dbutils.widgets.get("project_name").strip()
 DATABASE = dbutils.widgets.get("database_name").strip()
 SP_CLIENT_ID = dbutils.widgets.get("sp_client_id").strip()
+CATALOG = dbutils.widgets.get("catalog").strip()
+SCHEMA = dbutils.widgets.get("schema").strip()
+MIGRATE_DATA = dbutils.widgets.get("migrate_data").strip().lower() == "true"
 
 w = WorkspaceClient()
 CURRENT_USER = spark.sql("SELECT current_user()").collect()[0][0]
@@ -288,7 +294,98 @@ else:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Relatório
+# MAGIC ## 7. Migrar dados do Delta para Lakebase
+
+# COMMAND ----------
+
+if MIGRATE_DATA and CATALOG:
+    import psycopg2.extras
+
+    delta_tables = {
+        "documentos": f"{CATALOG}.{SCHEMA}.documentos",
+        "resultados": f"{CATALOG}.{SCHEMA}.resultados",
+        "correcoes": f"{CATALOG}.{SCHEMA}.correcoes",
+        "resultados_final": f"{CATALOG}.{SCHEMA}.resultados_final",
+    }
+
+    conn = get_pg_connection(DATABASE)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    for pg_table, delta_table in delta_tables.items():
+        try:
+            rows = spark.sql(f"SELECT * FROM {delta_table}").collect()
+        except Exception as e:
+            print(f"  ⚠ {delta_table}: {e}")
+            continue
+
+        if not rows:
+            print(f"  {pg_table}: 0 rows (vazia)")
+            continue
+
+        # Check how many already in Lakebase
+        cur.execute(f"SELECT COUNT(*) FROM {pg_table}")
+        existing = cur.fetchone()[0]
+
+        cols = rows[0].asDict().keys()
+        col_list = ", ".join(cols)
+        placeholders = ", ".join(["%s"] * len(cols))
+
+        migrated = 0
+        for row in rows:
+            vals = []
+            for c in cols:
+                v = row[c]
+                # Convert Spark types
+                if v is None:
+                    vals.append(None)
+                elif isinstance(v, str):
+                    vals.append(v)
+                else:
+                    vals.append(str(v))
+            try:
+                # Use JSON cast for known JSONB columns
+                insert_cols = []
+                insert_vals = []
+                insert_placeholders = []
+                for i, c in enumerate(cols):
+                    insert_cols.append(c)
+                    if c in ("extracted_json", "assessment_json", "token_usage_json"):
+                        insert_placeholders.append("%s::jsonb")
+                    elif c in ("processado_em", "criado_em", "confirmado_em", "resolvido_em",
+                               "ingested_at", "atualizado_em"):
+                        insert_placeholders.append("%s::timestamptz")
+                    else:
+                        insert_placeholders.append("%s")
+                    insert_vals.append(vals[i])
+
+                cur.execute(
+                    f"INSERT INTO {pg_table} ({', '.join(insert_cols)}) "
+                    f"VALUES ({', '.join(insert_placeholders)}) "
+                    f"ON CONFLICT DO NOTHING",
+                    insert_vals,
+                )
+                migrated += 1
+            except Exception as e:
+                conn.rollback()
+                conn.autocommit = True
+                if migrated == 0:
+                    print(f"  ⚠ {pg_table}: erro na primeira row: {str(e)[:100]}")
+                    break
+
+        print(f"  ✓ {pg_table}: {migrated} rows migradas (existiam {existing})")
+
+    conn.close()
+    print("✓ Migração concluída")
+elif not CATALOG:
+    print("⚠ catalog não informado — migração pulada")
+else:
+    print("⚠ migrate_data=false — migração pulada")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 8. Relatório
 
 # COMMAND ----------
 
