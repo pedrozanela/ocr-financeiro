@@ -119,8 +119,10 @@ def build_depara_section(depara: dict) -> str:
     lines = [
         "## DICIONÁRIO DE CONTAS (DE-PARA)",
         "",
-        "Se o nome de uma linha do documento corresponder (exato ou similar) a um dos aliases abaixo,",
-        "mapeie para o campo indicado. Quando houver ambiguidade, use o contexto da seção do balanço.",
+        "REGRA ABSOLUTA: se o nome de uma linha do documento corresponder (exato ou similar)",
+        "a um dos aliases abaixo, SEMPRE mapeie para o campo indicado — mesmo que seu",
+        "conhecimento contábil sugira outro campo. O de-para deste cliente tem PRECEDÊNCIA",
+        "total sobre qualquer convenção contábil padrão.",
         "",
     ]
     for section_key, field_entries in sections.items():
@@ -128,9 +130,12 @@ def build_depara_section(depara: dict) -> str:
         lines.append(f"### {label}")
         lines.append("")
         for path, conceito, aliases in field_entries:
-            aliases_str = ", ".join(aliases) if isinstance(aliases, list) else aliases
+            if not aliases:
+                continue
             lines.append(f"**{path}** — {conceito}")
-            lines.append(f"→ {aliases_str}")
+            # Render aliases as bullet list for better scannability
+            for alias in aliases:
+                lines.append(f"  - {alias}")
             lines.append("")
 
     return "\n".join(lines)
@@ -280,6 +285,12 @@ class TechFinExtractorAgent(PythonModel):
                     group = path.split(".")[0]
                     field = path.split(".", 1)[1]
                     self._detalhe_comum.setdefault(group, []).append(field)
+            # Build reverse alias index: alias_lower → list of target paths
+            self._alias_to_path = {}
+            for path, entry in depara_data.items():
+                for alias in entry.get("aliases", []):
+                    key = alias.strip().lower()
+                    self._alias_to_path.setdefault(key, []).append(path)
         else:
             self.depara_section = ""
             self._detalhe_comum = {}
@@ -407,6 +418,102 @@ class TechFinExtractorAgent(PythonModel):
                          "conta_corrente_socios_coligadas_controladas", "provisoes"],
         },
     }
+
+    def _postprocess_reclassify(self, result):
+        """Reclassifica campos cujo 'fontes' indica que o LLM mapeou para o campo errado.
+
+        Para cada campo com fonte, verifica se o texto da fonte corresponde a um alias
+        no depara que aponta para um campo DIFERENTE. Se sim, move o valor para o campo
+        correto. Isso corrige casos em que o LLM ignora o depara (ex: AFAC no PL em vez
+        de PNC.cc_socios, ou 'Ajustes as Normas Internacionais' em reservas_de_reavaliacao
+        em vez de lucros_acumulados)."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        if not self._alias_to_path:
+            return result
+
+        fontes = result.get("fontes", {})
+        if not fontes:
+            return result
+
+        postprocessed = result.setdefault("_postprocessed", [])
+        moves = []  # (from_path, to_path, value, fonte_text)
+
+        for campo, fonte_text in fontes.items():
+            if not fonte_text or not isinstance(fonte_text, str):
+                continue
+            # Get current value of the field
+            parts = campo.split(".")
+            obj = result
+            for p in parts[:-1]:
+                obj = obj.get(p, {}) if isinstance(obj, dict) else {}
+            current_val = obj.get(parts[-1]) if isinstance(obj, dict) else None
+            if not current_val or (isinstance(current_val, (int, float)) and abs(current_val) < 0.01):
+                continue
+
+            # Check each item in the fonte (split by " + ")
+            items = [s.strip() for s in fonte_text.split(" + ")]
+            for item in items:
+                # Strip trailing numbers/values to get just the name
+                item_name = item.strip()
+                key = item_name.lower()
+                # Look up in depara reverse index
+                target_paths = self._alias_to_path.get(key, [])
+                if not target_paths:
+                    continue
+                # Only reclassify if: (a) single-item fonte, (b) alias is
+                # UNAMBIGUOUS (points to exactly one field in depara, excluding
+                # CP/LP variants of the same field name), (c) that field != current
+                if len(items) != 1:
+                    continue
+                # Filter out CP/LP variants — keep only unique field names
+                unique_fields = set()
+                for tp in target_paths:
+                    unique_fields.add(tp.split(".")[-1])
+                if campo.split(".")[-1] in unique_fields:
+                    # Current field name is among targets — alias is ambiguous
+                    continue
+                # Pick the target that is NOT the current campo
+                target = next((tp for tp in target_paths if tp != campo), None)
+                if target:
+                    moves.append((campo, target, current_val, item_name))
+
+        # Apply moves
+        for from_path, to_path, value, fonte_text in moves:
+            # Remove from source
+            from_parts = from_path.split(".")
+            from_obj = result
+            for p in from_parts[:-1]:
+                from_obj = from_obj.get(p, {})
+            if isinstance(from_obj, dict):
+                old_val = from_obj.get(from_parts[-1], 0)
+                from_obj[from_parts[-1]] = 0
+
+            # Add to target
+            to_parts = to_path.split(".")
+            to_obj = result
+            for p in to_parts[:-1]:
+                if p not in to_obj:
+                    to_obj[p] = {}
+                to_obj = to_obj[p]
+            if isinstance(to_obj, dict):
+                existing = to_obj.get(to_parts[-1], 0) or 0
+                to_obj[to_parts[-1]] = round(existing + value, 2)
+
+            postprocessed.append({
+                "campo": from_path,
+                "original": old_val,
+                "corrigido": 0,
+                "motivo": f"Reclassificado para {to_path} conforme de-para (fonte: '{fonte_text}')",
+            })
+            postprocessed.append({
+                "campo": to_path,
+                "original": existing,
+                "corrigido": round(existing + value, 2),
+                "motivo": f"Recebido de {from_path} conforme de-para (fonte: '{fonte_text}')",
+            })
+
+        return result
 
     def _postprocess_anti_duplicacao(self, result):
         """Remove dupla contagem de campos marcados como detalhe_comum no depara.
@@ -771,6 +878,7 @@ class TechFinExtractorAgent(PythonModel):
                 # Pós-processamento: corrige inconsistências aritméticas do LLM.
                 # (a) outros_* recalculado como resíduo do grupo (AC/ANC/PC/PNC)
                 # (b) DRE: total_despesas_operacionais = soma componentes; sinal IRPJ
+                parsed = [self._postprocess_reclassify(r) for r in parsed]
                 parsed = [self._postprocess_anti_duplicacao(r) for r in parsed]
                 parsed = [self._postprocess_outros(r) for r in parsed]
                 parsed = [self._postprocess_cascata_dre(r) for r in parsed]

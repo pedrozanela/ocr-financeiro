@@ -24,6 +24,7 @@ dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("endpoint_name", "extrator-financeiro")
 dbutils.widgets.text("secret_scope", "pedro-zanela-scope")
 dbutils.widgets.text("secret_key",   "techfin-ocr-pat")
+dbutils.widgets.text("skip_endpoint", "false")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
@@ -132,6 +133,12 @@ print(f"Modelo registrado: {UC_MODEL_NAME} v{latest_version}")
 # MAGIC ## 2. Criar ou atualizar serving endpoint
 
 # COMMAND ----------
+
+SKIP_ENDPOINT = dbutils.widgets.get("skip_endpoint").strip().lower() == "true"
+
+if SKIP_ENDPOINT:
+    print(f"⏭ skip_endpoint=true — modelo v{latest_version} registrado, endpoint NÃO atualizado.")
+    dbutils.notebook.exit(json.dumps({"model": UC_MODEL_NAME, "version": latest_version, "endpoint_updated": False}))
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput

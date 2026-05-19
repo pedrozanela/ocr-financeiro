@@ -804,7 +804,8 @@
       "Outras contas",
       "Outras contas a pagar",
       "Outras obrigações",
-      "Adiantamentos recebidos"
+      "Adiantamentos recebidos",
+      "Parceria Agrícola a Pagar"
     ]
   },
   "passivo_circulante.provisoes": {
@@ -1033,7 +1034,8 @@
       "Outras obrigações",
       "Outros",
       "Outros passivos não circulantes",
-      "Outras Dividas Financeiras LP"
+      "Outras Dividas Financeiras LP",
+      "Parceria Agrícola a Pagar"
     ]
   },
   "passivo_nao_circulante.provisoes": {
@@ -1119,7 +1121,9 @@
       "Reserva de lucros",
       "Reserva de lucros a realizar",
       "reserva de incentivos fiscais",
-      "Reservas legais"
+      "Reservas legais",
+      "Ajustes as Normas Internacionais",
+      "Ajustes às normas internacionais"
     ]
   },
   "patrimonio_liquido.acoes_em_tesouraria": {
@@ -1429,7 +1433,9 @@
       "Tarifas bancárias",
       "Despesas com financiamentos",
       "Juros de financiamentos",
-      "DESPESAS TARIFA JUROS IOF"
+      "DESPESAS TARIFA JUROS IOF",
+      "Resultado com derivativo",
+      "Resultado com derivativos"
     ]
   },
   "dre.descontos_concedidos": {
