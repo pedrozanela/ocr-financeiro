@@ -81,8 +81,7 @@ try:
     print(f"✓ Projeto '{PROJECT}' já existe")
 except Exception:
     print(f"Criando projeto '{PROJECT}'...")
-    w.api_client.do("POST", "/api/2.0/postgres/projects", body={
-        "project_id": PROJECT,
+    w.api_client.do("POST", f"/api/2.0/postgres/projects?project_id={PROJECT}", body={
         "spec": {"display_name": PROJECT.replace("-", " ").title()},
     })
     print(f"✓ Projeto '{PROJECT}' criado")
@@ -263,8 +262,7 @@ else:
         w.api_client.do("GET", f"/api/2.0/postgres/{role_path}")
         print(f"✓ Role 'app-sp' já existe")
     except Exception:
-        w.api_client.do("POST", f"/api/2.0/postgres/{branch_path}/roles", body={
-            "role_id": "app-sp",
+        w.api_client.do("POST", f"/api/2.0/postgres/{branch_path}/roles?role_id=app-sp", body={
             "spec": {
                 "postgres_role": SP_CLIENT_ID,
                 "identity_type": "SERVICE_PRINCIPAL",
