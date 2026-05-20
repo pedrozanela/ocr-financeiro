@@ -67,7 +67,9 @@ spark.sql(f"""
         token_usage_json STRING,
         razao_social STRING,
         cnpj STRING,
-        tipo_demonstrativo STRING,
+        tipo_demonstrativo INT,
+        tipo_documento INT,
+        numeroMeses INT,
         moeda STRING,
         escala_valores STRING,
         processado_em TIMESTAMP,
@@ -80,11 +82,27 @@ spark.sql(f"""
         'delta.minWriterVersion' = '5'
     )
 """)
-# Migração idempotente para ambientes existentes (adiciona coluna se não existir)
+# Migrações idempotentes para ambientes existentes
+for col_ddl in [
+    "modo_extracao STRING",
+    "tipo_documento INT",
+    "numeroMeses INT",
+]:
+    try:
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados ADD COLUMN ({col_ddl})")
+    except Exception:
+        pass  # coluna já existe
+
+# Garantir que tipo_demonstrativo é INT (era STRING em versões antigas)
 try:
-    spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados ADD COLUMN modo_extracao STRING")
-except Exception:
-    pass  # coluna já existe
+    cols = spark.sql(f"DESCRIBE TABLE {catalog}.{schema}.resultados").collect()
+    td = next((c for c in cols if c.col_name == "tipo_demonstrativo"), None)
+    if td and td.data_type.lower() != "int":
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados DROP COLUMN tipo_demonstrativo")
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados ADD COLUMN (tipo_demonstrativo INT)")
+        print("  Migrated tipo_demonstrativo: STRING -> INT")
+except Exception as e:
+    print(f"  Skipped tipo_demonstrativo migration: {e}")
 print("Tabela resultados OK")
 
 # COMMAND ----------
@@ -116,11 +134,16 @@ spark.sql(f"""
         extracted_json STRING,
         razao_social STRING,
         cnpj STRING,
-        tipo_demonstrativo STRING,
+        tipo_demonstrativo INT,
+        tipo_documento INT,
+        numeroMeses INT,
         moeda STRING,
         escala_valores STRING,
         atualizado_em TIMESTAMP,
-        atualizado_por STRING
+        atualizado_por STRING,
+        status STRING,
+        finalizado_em TIMESTAMP,
+        finalizado_por STRING
     ) USING DELTA
     TBLPROPERTIES (
         'delta.columnMapping.mode' = 'name',
@@ -128,6 +151,27 @@ spark.sql(f"""
         'delta.minWriterVersion' = '5'
     )
 """)
+# Migrações idempotentes
+for col_ddl in [
+    "tipo_documento INT",
+    "numeroMeses INT",
+    "status STRING",
+    "finalizado_em TIMESTAMP",
+    "finalizado_por STRING",
+]:
+    try:
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados_final ADD COLUMN ({col_ddl})")
+    except Exception:
+        pass
+try:
+    cols = spark.sql(f"DESCRIBE TABLE {catalog}.{schema}.resultados_final").collect()
+    td = next((c for c in cols if c.col_name == "tipo_demonstrativo"), None)
+    if td and td.data_type.lower() != "int":
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados_final DROP COLUMN tipo_demonstrativo")
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados_final ADD COLUMN (tipo_demonstrativo INT)")
+        print("  Migrated tipo_demonstrativo: STRING -> INT")
+except Exception as e:
+    print(f"  Skipped tipo_demonstrativo migration: {e}")
 print("Tabela resultados_final OK")
 
 # COMMAND ----------

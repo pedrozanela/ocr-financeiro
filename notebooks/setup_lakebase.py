@@ -211,7 +211,9 @@ CREATE TABLE IF NOT EXISTS resultados (
     token_usage_json JSONB,
     razao_social TEXT,
     cnpj TEXT,
-    tipo_demonstrativo TEXT,
+    tipo_demonstrativo INTEGER,
+    tipo_documento INTEGER,
+    numeroMeses INTEGER,
     moeda TEXT,
     escala_valores TEXT,
     processado_em TIMESTAMPTZ DEFAULT NOW(),
@@ -243,11 +245,16 @@ CREATE TABLE IF NOT EXISTS resultados_final (
     extracted_json JSONB,
     razao_social TEXT,
     cnpj TEXT,
-    tipo_demonstrativo TEXT,
+    tipo_demonstrativo INTEGER,
+    tipo_documento INTEGER,
+    numeroMeses INTEGER,
     moeda TEXT,
     escala_valores TEXT,
     atualizado_em TIMESTAMPTZ DEFAULT NOW(),
     atualizado_por TEXT,
+    status TEXT DEFAULT 'em_revisao',
+    finalizado_em TIMESTAMPTZ,
+    finalizado_por TEXT,
     PRIMARY KEY (document_name, tipo_entidade, periodo)
 );
 
@@ -259,6 +266,42 @@ CREATE INDEX IF NOT EXISTS idx_resultados_final_doc ON resultados_final (documen
 
 cur.execute(DDL)
 print("✓ Tabelas criadas")
+
+# Migrations idempotentes para ambientes existentes
+for tbl in ("resultados", "resultados_final"):
+    cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS tipo_documento INTEGER")
+    cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS numeroMeses INTEGER")
+    # Convert tipo_demonstrativo from TEXT to INTEGER (idempotente: só altera se ainda for text)
+    cur.execute(f"""
+        SELECT data_type FROM information_schema.columns
+        WHERE table_name = '{tbl}' AND column_name = 'tipo_demonstrativo'
+    """)
+    row = cur.fetchone()
+    if row and row[0] == "text":
+        cur.execute(f"""
+            ALTER TABLE {tbl} ALTER COLUMN tipo_demonstrativo TYPE INTEGER USING (
+                CASE LOWER(TRIM(COALESCE(tipo_demonstrativo,'')))
+                    WHEN 'anual' THEN 1
+                    WHEN 'semestral' THEN 2
+                    WHEN 'trimestral' THEN 3
+                    WHEN 'mensal' THEN 4
+                    WHEN '1' THEN 1
+                    WHEN '2' THEN 2
+                    WHEN '3' THEN 3
+                    WHEN '4' THEN 4
+                    ELSE NULL
+                END
+            )
+        """)
+        print(f"  Migrated {tbl}.tipo_demonstrativo: TEXT -> INTEGER")
+
+# Migrations idempotentes para fluxo de finalização (apenas resultados_final)
+cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'em_revisao'")
+cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS finalizado_em TIMESTAMPTZ")
+cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS finalizado_por TEXT")
+# Preencher status default em linhas legadas (criadas antes do default)
+cur.execute("UPDATE resultados_final SET status = 'em_revisao' WHERE status IS NULL")
+print("✓ Migrations aplicadas")
 
 # Verify
 cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")

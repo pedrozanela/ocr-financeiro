@@ -102,7 +102,16 @@ def _get_pg():
     return _pg_conn
 
 
-def pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, modelo_versao, modo):
+def _int_or_none(v):
+    if v in (None, "", "NULL"):
+        return None
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, tdoc, nm, moe, escv, modelo_versao, modo):
     conn = _get_pg()
     if not conn:
         return
@@ -110,20 +119,22 @@ def pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, model
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO resultados (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
-                token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
-                processado_em, modelo_versao, modo_extracao)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
+                token_usage_json, razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
+                moeda, escala_valores, processado_em, modelo_versao, modo_extracao)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
             ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
                 extracted_json = EXCLUDED.extracted_json, assessment_json = EXCLUDED.assessment_json,
                 token_usage_json = EXCLUDED.token_usage_json, razao_social = EXCLUDED.razao_social,
                 cnpj = EXCLUDED.cnpj, tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                tipo_documento = EXCLUDED.tipo_documento, numeroMeses = EXCLUDED.numeroMeses,
                 moeda = EXCLUDED.moeda, escala_valores = EXCLUDED.escala_valores,
                 processado_em = NOW(), modelo_versao = EXCLUDED.modelo_versao,
                 modo_extracao = EXCLUDED.modo_extracao
         """, (doc, te, per, PgJson(json.loads(ej.replace("''", "'"))),
               PgJson(json.loads(aj.replace("''", "'"))),
               PgJson(json.loads(uj.replace("''", "'"))),
-              rs, cnpj, td, moe, escv, modelo_versao, modo))
+              rs, cnpj, _int_or_none(td), _int_or_none(tdoc), _int_or_none(nm),
+              moe, escv, modelo_versao, modo))
 
 
 def pg_upsert_documento(doc, text):
@@ -149,15 +160,16 @@ def pg_sync_final(doc_names):
             cur.execute("""
                 INSERT INTO resultados_final
                     (document_name, tipo_entidade, periodo, extracted_json,
-                     razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
-                     atualizado_em, atualizado_por)
+                     razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
+                     moeda, escala_valores, atualizado_em, atualizado_por)
                 SELECT document_name, tipo_entidade, periodo, extracted_json,
-                       razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
-                       NOW(), %s
+                       razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
+                       moeda, escala_valores, NOW(), %s
                 FROM resultados WHERE document_name = %s
                 ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
                     extracted_json = EXCLUDED.extracted_json, razao_social = EXCLUDED.razao_social,
                     cnpj = EXCLUDED.cnpj, tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                    tipo_documento = EXCLUDED.tipo_documento, numeroMeses = EXCLUDED.numeroMeses,
                     moeda = EXCLUDED.moeda, escala_valores = EXCLUDED.escala_valores,
                     atualizado_em = NOW(), atualizado_por = EXCLUDED.atualizado_por
             """, (f"job:{CURRENT_USER}", doc))
@@ -403,7 +415,14 @@ def save_result(pdf_name: str, results: list, v_in: int, v_out: int):
         cnpj = esc(get_nested(result, "cnpj"))
         per  = esc(get_nested(result, "identificacao.periodo"))
         te   = esc(get_nested(result, "tipo_entidade"))
-        td   = esc(get_nested(result, "identificacao.tipo_demonstrativo"))
+        def _int_or_null(v):
+            try:
+                return str(int(v)) if v not in (None, "") else "NULL"
+            except (ValueError, TypeError):
+                return "NULL"
+        td   = _int_or_null(get_nested(result, "identificacao.tipo_demonstrativo"))
+        tdoc = _int_or_null(get_nested(result, "identificacao.tipo_documento"))
+        nm   = _int_or_null(get_nested(result, "identificacao.numeroMeses"))
         moe  = esc(get_nested(result, "identificacao.moeda"))
         escv = esc(get_nested(result, "identificacao.escala_valores"))
         mv   = MODELO_VERSAO.replace("'", "''")
@@ -422,7 +441,9 @@ def save_result(pdf_name: str, results: list, v_in: int, v_out: int):
                 token_usage_json   = '{uj}',
                 razao_social       = '{rs}',
                 cnpj               = '{cnpj}',
-                tipo_demonstrativo = '{td}',
+                tipo_demonstrativo = {td},
+                tipo_documento     = {tdoc},
+                numeroMeses        = {nm},
                 moeda              = '{moe}',
                 escala_valores     = '{escv}',
                 processado_em      = CURRENT_TIMESTAMP(),
@@ -430,14 +451,15 @@ def save_result(pdf_name: str, results: list, v_in: int, v_out: int):
                 modo_extracao      = 'vision'
             WHEN NOT MATCHED THEN INSERT
                 (document_name, tipo_entidade, periodo, extracted_json, assessment_json,
-                 token_usage_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+                 token_usage_json, razao_social, cnpj, tipo_demonstrativo, tipo_documento,
+                 numeroMeses, moeda, escala_valores,
                  processado_em, modelo_versao, modo_extracao)
             VALUES
                 ('{doc}', '{te}', '{per}', '{ej}', '{aj}',
-                 '{uj}', '{rs}', '{cnpj}', '{td}', '{moe}', '{escv}',
+                 '{uj}', '{rs}', '{cnpj}', {td}, {tdoc}, {nm}, '{moe}', '{escv}',
                  CURRENT_TIMESTAMP(), '{mv}', 'vision')
         """)
-        pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, moe, escv, mv, 'vision')
+        pg_upsert_resultado(doc, te, per, ej, aj, uj, rs, cnpj, td, tdoc, nm, moe, escv, mv, 'vision')
 
 
 # COMMAND ----------
@@ -517,7 +539,8 @@ if success:
         MERGE INTO {FINAL_TABLE} AS t
         USING (
             SELECT document_name, tipo_entidade, periodo, extracted_json,
-                   razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores
+                   razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
+                   moeda, escala_valores
             FROM {RESULTS_TABLE}
             WHERE document_name = '{doc_esc}'
         ) AS s
@@ -529,17 +552,21 @@ if success:
             razao_social       = s.razao_social,
             cnpj               = s.cnpj,
             tipo_demonstrativo = s.tipo_demonstrativo,
+            tipo_documento     = s.tipo_documento,
+            numeroMeses        = s.numeroMeses,
             moeda              = s.moeda,
             escala_valores     = s.escala_valores,
             atualizado_em      = CURRENT_TIMESTAMP(),
             atualizado_por     = 'job:{CURRENT_USER}'
         WHEN NOT MATCHED THEN INSERT
             (document_name, tipo_entidade, periodo, extracted_json,
-             razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores,
+             razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
+             moeda, escala_valores,
              atualizado_em, atualizado_por)
         VALUES
             (s.document_name, s.tipo_entidade, s.periodo, s.extracted_json,
-             s.razao_social, s.cnpj, s.tipo_demonstrativo, s.moeda, s.escala_valores,
+             s.razao_social, s.cnpj, s.tipo_demonstrativo, s.tipo_documento, s.numeroMeses,
+             s.moeda, s.escala_valores,
              CURRENT_TIMESTAMP(), 'job:{CURRENT_USER}')
     """)
     pg_sync_final([PDF_NAME])

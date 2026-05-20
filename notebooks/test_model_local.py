@@ -23,6 +23,7 @@ dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "ocr_financeiro")
 dbutils.widgets.text("model_version", "")
 dbutils.widgets.text("pdf_name", "")
+dbutils.widgets.text("ocr_model", "databricks-claude-sonnet-4-6")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
@@ -75,6 +76,7 @@ if not _host.startswith("http"):
     _host = f"https://{_host}"
 os.environ["DATABRICKS_TOKEN"] = _token
 os.environ["DATABRICKS_HOST"] = _host
+os.environ["OCR_MODEL"] = dbutils.widgets.get("ocr_model").strip()
 
 model_uri = f"models:/{UC_MODEL}/{version}"
 print(f"Carregando {model_uri}...")

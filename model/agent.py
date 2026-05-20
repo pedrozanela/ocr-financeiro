@@ -419,6 +419,121 @@ class TechFinExtractorAgent(PythonModel):
         },
     }
 
+    # Groups with totals for gap detection
+    _GROUP_TOTALS = {
+        "ativo_circulante": "total_ativo_circulante",
+        "ativo_nao_circulante": "total_ativo_nao_circulante",
+        "ativo_permanente": "total_ativo_permanente",
+        "passivo_circulante": "total_passivo_circulante",
+        "passivo_nao_circulante": "total_passivo_nao_circulante",
+        "patrimonio_liquido": "total_patrimonio_liquido",
+    }
+
+    def _postprocess_gap_recovery(self, result, text):
+        """Recupera valores não extraídos quando há gap entre total e soma.
+
+        Se total_grupo - soma_campos > threshold, busca no texto do documento
+        linhas que correspondem a aliases do depara apontando para OUTRO grupo.
+        Extrai o valor numérico e move para o campo correto."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        if not self._alias_to_path or not text:
+            return result
+
+        import re
+
+        postprocessed = result.setdefault("_postprocessed", [])
+
+        for group_name, total_field in self._GROUP_TOTALS.items():
+            grp = result.get(group_name)
+            if not isinstance(grp, dict):
+                continue
+            total_val = grp.get(total_field) or 0
+            if abs(total_val) < 1:
+                continue
+            soma = sum(v for k, v in grp.items()
+                       if k != total_field and isinstance(v, (int, float)))
+            gap = total_val - soma
+            # Only act if gap is significant (>1% of total)
+            if abs(gap) < max(1.0, abs(total_val) * 0.01):
+                continue
+
+            # Search text for aliases that should go to a DIFFERENT group
+            for alias_lower, target_paths in self._alias_to_path.items():
+                # Only consider aliases that map to a different group
+                targets_other_group = [
+                    tp for tp in target_paths
+                    if tp.split(".")[0] != group_name
+                ]
+                if not targets_other_group:
+                    continue
+
+                # Search for the alias in the text (case-insensitive)
+                # Look for: alias followed by a number on the same or next line
+                pattern = re.compile(
+                    re.escape(alias_lower).replace(r"\ ", r"\s+") +
+                    r"[\s\S]{0,50}?" +
+                    r"([\-\(]?\s*[\d.,]+(?:\.\d{2,3})?\s*\)?)",
+                    re.IGNORECASE
+                )
+                match = pattern.search(text)
+                if not match:
+                    continue
+
+                # Parse the value
+                raw_val = match.group(1).strip()
+                # Handle Brazilian format: 1.234.567,89 or (1.234.567,89)
+                is_negative = raw_val.startswith("(") or raw_val.startswith("-")
+                raw_val = raw_val.strip("()-").strip()
+                # Detect format: if has comma followed by 2 digits at end → BR format
+                if re.search(r",\d{2}$", raw_val):
+                    raw_val = raw_val.replace(".", "").replace(",", ".")
+                try:
+                    value = float(raw_val)
+                except ValueError:
+                    continue
+                if is_negative:
+                    value = -value
+
+                # Only accept if value matches the gap closely (within 5%)
+                if abs(value) < 1:
+                    continue
+                tolerance = max(1.0, abs(gap) * 0.05)
+                if abs(abs(value) - abs(gap)) > tolerance:
+                    continue  # Value doesn't explain the gap
+
+                # Move to the correct field — prefer non-circulante over circulante
+                # (items missed from PL are typically long-term)
+                target = targets_other_group[0]
+                for tp in targets_other_group:
+                    if "nao_circulante" in tp:
+                        target = tp
+                        break
+                target_parts = target.split(".")
+                target_group = target_parts[0]
+                target_field = target_parts[1] if len(target_parts) > 1 else target_parts[0]
+
+                target_grp = result.get(target_group)
+                if not isinstance(target_grp, dict):
+                    continue
+
+                existing = target_grp.get(target_field, 0) or 0
+                target_grp[target_field] = round(existing + value, 2)
+
+                postprocessed.append({
+                    "campo": f"{target_group}.{target_field}",
+                    "original": existing,
+                    "corrigido": round(existing + value, 2),
+                    "motivo": f"Gap recovery: '{alias_lower}' ({value}) encontrado no texto, movido de {group_name} conforme de-para",
+                })
+
+                # Reduce the gap
+                gap -= value
+                if abs(gap) < max(1.0, abs(total_val) * 0.01):
+                    break
+
+        return result
+
     def _postprocess_reclassify(self, result):
         """Reclassifica campos cujo 'fontes' indica que o LLM mapeou para o campo errado.
 

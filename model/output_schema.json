@@ -25,8 +25,20 @@
             "type": "string"
           },
           "tipo_demonstrativo": {
-            "description": "Tipo de consolidação. Identificar se é CONSOLIDADO ou INDIVIDUAL (ANUAL ou TRIMESTRAL). Se não explícito, assumir INDIVIDUAL.",
-            "type": "string"
+            "description": "Periodicidade do demonstrativo. ENUM (inteiro): 1=Anual, 2=Semestral, 3=Trimestral, 4=Mensal. Se não explícito, inferir pelo numeroMeses.",
+            "type": "integer",
+            "enum": [1, 2, 3, 4]
+          },
+          "tipo_documento": {
+            "description": "Tipo do documento financeiro. ENUM (inteiro): 1=Balanço (Balanço Patrimonial completo), 2=Balancete (relatório periódico contábil). Identificar pelo título do documento ou estrutura.",
+            "type": "integer",
+            "enum": [1, 2]
+          },
+          "numeroMeses": {
+            "description": "Número de meses cobertos pelo demonstrativo (1 a 12). Para Balanço anual = 12, semestral = 6, trimestral = 3, mensal = 1. Para balancete intermediário, calcular meses entre início do exercício e a data do periodo.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
           },
           "moeda": {
             "description": "Moeda utilizada (ex.: REAL, BRL, USD).",
@@ -40,6 +52,8 @@
         "required": [
           "periodo",
           "tipo_demonstrativo",
+          "tipo_documento",
+          "numeroMeses",
           "moeda",
           "escala_valores"
         ]
