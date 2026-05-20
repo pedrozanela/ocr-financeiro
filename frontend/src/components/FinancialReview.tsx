@@ -39,6 +39,9 @@ interface DocRecord {
   processado_em?: string | null
   modelo_versao?: string | null
   modo_extracao?: string | null
+  status?: string
+  finalizado_em?: string
+  finalizado_por?: string
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,6 +135,10 @@ export default function FinancialReview({ documentName }: Props) {
   const [showPdf, setShowPdf] = useState(false)
   const [reprocessing, setReprocessing] = useState(false)
   const [reprocessError, setReprocessError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitConfirm, setSubmitConfirm] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [docStatus, setDocStatus] = useState<string>('em_revisao')
   const [toast, setToast] = useState<string | null>(null)
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -153,6 +160,7 @@ export default function FinancialReview({ documentName }: Props) {
       const recs: DocRecord[] = doc.records ?? (doc.data ? [{ tipo_entidade: null, periodo: null, data: doc.data }] : [])
       setRecords(recs)
       setCorrections(corr)
+      setDocStatus(doc.status ?? 'em_revisao')
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [documentName])
@@ -164,17 +172,42 @@ export default function FinancialReview({ documentName }: Props) {
     await fetch('/api/corrections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ document_name: documentName, tipo_entidade: te, periodo: per, campo, valor_extraido: valorExtraido, valor_correto: valorCorreto, comentario }),
+      body: JSON.stringify({ document_name: documentName, tipo_entidade: te, periodo: per, campo, valor_extraido: valorExtraido, valor_correto: valorCorreto, comentario, auto_confirm: true }),
     })
     const key = corrKey(campo, te, per)
+    const nowIso = new Date().toISOString()
     setCorrections(prev => ({
       ...prev,
-      [key]: { campo, tipo_entidade: te, periodo: per, valor_extraido: valorExtraido, valor_correto: valorCorreto, comentario, status: 'pendente', confirmado_em: null, confirmado_por: null },
+      [key]: { campo, tipo_entidade: te, periodo: per, valor_extraido: valorExtraido, valor_correto: valorCorreto, comentario, status: 'confirmado', confirmado_em: nowIso, confirmado_por: null },
     }))
     setSaving(null)
     setSaved(campo)
     setTimeout(() => setSaved(null), 2000)
-    showToast('Correção salva com sucesso')
+    showToast(valorCorreto !== valorExtraido ? 'Valor revisado' : 'Valor confirmado')
+  }
+
+  async function handleBulkConfirm(items: { campo: string; valor_extraido: string; valor_correto: string }[]) {
+    const te  = current.tipo_entidade ?? ''
+    const per = current.periodo ?? ''
+    await fetch('/api/corrections/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_name: documentName, tipo_entidade: te, periodo: per, items }),
+    })
+    const nowIso = new Date().toISOString()
+    setCorrections(prev => {
+      const next = { ...prev }
+      for (const it of items) {
+        const key = corrKey(it.campo, te, per)
+        next[key] = {
+          campo: it.campo, tipo_entidade: te, periodo: per,
+          valor_extraido: it.valor_extraido, valor_correto: it.valor_correto, comentario: '',
+          status: 'confirmado', confirmado_em: nowIso, confirmado_por: null,
+        }
+      }
+      return next
+    })
+    showToast(`${items.length} ${items.length === 1 ? 'campo confirmado' : 'campos confirmados'}`)
   }
 
   async function handleDelete(campo: string) {
@@ -237,6 +270,28 @@ export default function FinancialReview({ documentName }: Props) {
     }
   }
 
+  async function handleSubmit() {
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const r = await fetch(`/api/finalize/${encodeURIComponent(documentName)}`, { method: 'POST' })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: 'Erro desconhecido' }))
+        setSubmitError(err.detail ?? 'Erro ao submeter')
+        return
+      }
+      setDocStatus('finalizado')
+      // Atualizar status em cada registro localmente
+      setRecords(prev => prev.map(rec => ({ ...rec, status: 'finalizado' })))
+      setSubmitConfirm(false)
+      showToast('Documento finalizado com sucesso')
+    } catch (e: unknown) {
+      setSubmitError(e instanceof Error ? e.message : 'Erro ao submeter')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   if (loading) return <LoadingSkeleton />
   if (!records.length) {
     return (
@@ -264,7 +319,12 @@ export default function FinancialReview({ documentName }: Props) {
   }
 
   const pendingCount   = Object.values(recordCorrections).filter(c => c.status !== 'confirmado').length
-  const confirmedCount = Object.values(recordCorrections).filter(c => c.status === 'confirmado').length
+  const isFinalized = docStatus === 'finalizado'
+
+  // Count LLM-puro fields (sem correção) — usado para gate do botão Submeter
+  const reviewableFields = SECTIONS.flatMap(s => s.fields).filter(f => !f.isTotal && f.type !== 'text')
+  const llmPuroCount = reviewableFields.filter(f => !recordCorrections[f.path]).length
+  const canSubmit = llmPuroCount === 0
 
   // Per-section correction counts for badges
   const sectionCounts = SECTIONS.map(s => {
@@ -360,22 +420,52 @@ export default function FinancialReview({ documentName }: Props) {
 
             {/* Actions */}
             <div className="flex items-center gap-2 shrink-0 ml-4">
-              {pendingCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  {pendingCount} pendente{pendingCount !== 1 ? 's' : ''}
+              {/* Status badge */}
+              {isFinalized ? (
+                <span
+                  className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-300"
+                  title={current.finalizado_por ? `Finalizado por ${current.finalizado_por}${current.finalizado_em ? ` em ${current.finalizado_em.substring(0, 19).replace('T', ' ')}` : ''}` : 'Documento finalizado'}
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Finalizado
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-blue-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  Em revisão
                 </span>
               )}
-              {confirmedCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  {confirmedCount} confirmada{confirmedCount !== 1 ? 's' : ''}
+
+              {!isFinalized && llmPuroCount > 0 && (
+                <span className="inline-flex items-center gap-1.5 bg-gray-50 text-gray-600 text-xs font-medium px-2.5 py-1 rounded-full border border-gray-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+                  {llmPuroCount} para revisar
                 </span>
+              )}
+
+              {!isFinalized && (
+                <button
+                  onClick={() => canSubmit && setSubmitConfirm(true)}
+                  disabled={submitting || !canSubmit}
+                  title={canSubmit ? '' : `Revise os ${llmPuroCount} campo${llmPuroCount !== 1 ? 's' : ''} pendente${llmPuroCount !== 1 ? 's' : ''} antes de submeter`}
+                  className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all font-semibold ${
+                    canSubmit
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm disabled:opacity-40'
+                      : 'bg-white text-gray-400 border border-gray-200 cursor-not-allowed'
+                  }`}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  {submitting ? 'Submetendo…' : 'Submeter'}
+                </button>
               )}
 
               <button
                 onClick={handleReprocess}
-                disabled={reprocessing}
+                disabled={reprocessing || isFinalized}
                 className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-40"
               >
                 <svg className={`w-3.5 h-3.5 ${reprocessing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -489,14 +579,65 @@ export default function FinancialReview({ documentName }: Props) {
               assessment={assessmentMap}
               saving={saving}
               saved={saved}
+              documentName={documentName}
               getValue={getNestedValue}
               onSave={handleSave}
               onDelete={handleDelete}
               onConfirm={handleConfirm}
+              onBulkConfirm={handleBulkConfirm}
+              readOnly={isFinalized}
             />
           )}
         </div>
       </div>
+
+      {/* Submit confirmation modal */}
+      {submitConfirm && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Submeter documento?</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Esta ação é <strong>irreversível</strong>. Após submeter, o documento será marcado como
+                  <strong> Finalizado</strong> e nenhuma edição será mais permitida.
+                </p>
+                {pendingCount > 0 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2">
+                    Atenção: ainda há {pendingCount} correção{pendingCount !== 1 ? 'ões' : ''} legada{pendingCount !== 1 ? 's' : ''} pendente{pendingCount !== 1 ? 's' : ''} de confirmação.
+                  </p>
+                )}
+              </div>
+            </div>
+            {submitError && (
+              <div className="mb-3 flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {submitError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => { setSubmitConfirm(false); setSubmitError(null) }}
+                disabled={submitting}
+                className="text-sm px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="text-sm px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-semibold disabled:opacity-40"
+              >
+                {submitting ? 'Submetendo…' : 'Confirmar e submeter'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}

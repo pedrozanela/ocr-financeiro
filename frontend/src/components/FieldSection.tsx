@@ -1,12 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SectionDef, FieldDef } from './fieldDefinitions'
 import { AssessmentItem } from './FinancialReview'
+import {
+  IconSparkles, IconUserCheck, IconPencil, IconArrowBackUp,
+  IconAlertCircle, IconEye, IconEyeOff, IconDownload, IconCheck, IconX,
+  IconChevronRight,
+} from '@tabler/icons-react'
+
+// ─── Constants / helpers ─────────────────────────────────────────────────────
 
 const brl = new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
+  style: 'currency', currency: 'BRL',
+  minimumFractionDigits: 2, maximumFractionDigits: 2,
 })
 
 function getScaleMultiplier(scale: string): number {
@@ -16,68 +21,58 @@ function getScaleMultiplier(scale: string): number {
   return 1
 }
 
-function formatValue(raw: string, type: 'number' | 'text' | 'date', scale: string): string {
+function formatValue(raw: string, type: 'number' | 'text' | 'date' | 'enum', scale: string, options?: { value: number; label: string }[]): string {
   if (!raw || raw === '' || raw === 'null') return ''
+  if (type === 'enum' && options) {
+    const n = parseInt(raw, 10)
+    if (isNaN(n)) {
+      const byLabel = options.find(o => o.label.toLowerCase() === raw.toLowerCase())
+      return byLabel ? byLabel.label : raw
+    }
+    const match = options.find(o => o.value === n)
+    return match ? match.label : raw
+  }
   if (type !== 'number') return raw
   const n = parseFloat(raw)
   if (isNaN(n)) return raw
-  const multiplier = getScaleMultiplier(scale)
-  return brl.format(n * multiplier)
+  return brl.format(n * getScaleMultiplier(scale))
 }
 
-// Cascade totals: soma simples respeitando sinais do documento.
-// Deduções, custos, despesas, IR, CSLL etc. já vêm negativos do modelo.
+// Soma simples com sinais do documento
 const CASCADE_FORMULAS: Record<string, string[]> = {
   'dre.receita_operacional_liquida': [
     'dre.receita_operacional_bruta',
     'dre.total_deducoes',
     'dre.incentivos_a_exportacoes',
   ],
-  'dre.lucro_bruto': [
-    'dre.receita_operacional_liquida',
-    'dre.total_custo',
-  ],
-  'dre.lucro_operacional': [
-    'dre.lucro_bruto',
-    'dre.total_despesas_operacionais',
-  ],
+  'dre.lucro_bruto': ['dre.receita_operacional_liquida', 'dre.total_custo'],
+  'dre.lucro_operacional': ['dre.lucro_bruto', 'dre.total_despesas_operacionais'],
   'dre.lucro_financeiro': [
-    'dre.lucro_operacional',
-    'dre.despesas_financeiras',
-    'dre.total_receitas_financeiras',
+    'dre.lucro_operacional', 'dre.despesas_financeiras', 'dre.total_receitas_financeiras',
   ],
   'dre.lucro_antes_imposto_de_renda': [
-    'dre.lucro_financeiro',
-    'dre.resultado_de_equivalencia_patrimonial',
-    'dre.receita_nao_operacional',
-    'dre.despesa_nao_operacional',
-    'dre.saldo_correcao_monetaria',
-    'dre.resultado_alienacao_ativos',
+    'dre.lucro_financeiro', 'dre.resultado_de_equivalencia_patrimonial',
+    'dre.receita_nao_operacional', 'dre.despesa_nao_operacional',
+    'dre.saldo_correcao_monetaria', 'dre.resultado_alienacao_ativos',
   ],
   'dre.lucro_antes_participacoes': [
-    'dre.lucro_antes_imposto_de_renda',
-    'dre.provisao_imposto_de_renda',
-    'dre.csll',
+    'dre.lucro_antes_imposto_de_renda', 'dre.provisao_imposto_de_renda', 'dre.csll',
   ],
   'dre.lucro_antes_participacao_minoritaria': [
-    'dre.lucro_antes_participacoes',
-    'dre.participacoes_gratificacoes_estatutarias',
+    'dre.lucro_antes_participacoes', 'dre.participacoes_gratificacoes_estatutarias',
   ],
-  'dre.lucro_liquido': [
-    'dre.lucro_antes_participacao_minoritaria',
-    'dre.participacao_minoritarios',
-  ],
+  'dre.lucro_liquido': ['dre.lucro_antes_participacao_minoritaria', 'dre.participacao_minoritarios'],
 }
 
 const GROUP_LABELS: Record<string, string> = {
-  'identificacao':       'Identificação',
-  'ativo_circulante':    'Ativo Circulante',
-  'ativo_nao_circulante':'Ativo Não Circulante',
-  'ativo_permanente':    'Ativo Permanente',
-  'passivo_circulante':  'Passivo Circulante',
+  'identificacao': 'Identificação',
+  'ativo_circulante': 'Ativo Circulante',
+  'ativo_nao_circulante': 'Ativo Não Circulante',
+  'ativo_permanente': 'Ativo Permanente',
+  'passivo_circulante': 'Passivo Circulante',
   'passivo_nao_circulante': 'Passivo Não Circulante',
-  'patrimonio_liquido':  'Patrimônio Líquido',
-  'dre':                 'DRE',
+  'patrimonio_liquido': 'Patrimônio Líquido',
+  'dre': 'DRE',
 }
 
 interface FieldGroup {
@@ -90,29 +85,20 @@ interface FieldGroup {
 function buildGroups(fields: FieldDef[]): { groups: FieldGroup[]; useGroups: boolean } {
   const groupMap = new Map<string, FieldGroup>()
   const rootFields: FieldDef[] = []
-
   for (const field of fields) {
     const dot = field.path.indexOf('.')
     if (dot === -1) {
       rootFields.push(field)
     } else {
       const key = field.path.substring(0, dot)
-      if (!groupMap.has(key)) {
-        groupMap.set(key, { key, label: GROUP_LABELS[key] ?? key, fields: [] })
-      }
+      if (!groupMap.has(key)) groupMap.set(key, { key, label: GROUP_LABELS[key] ?? key, fields: [] })
       groupMap.get(key)!.fields.push(field)
     }
   }
-
   const prefixGroups = Array.from(groupMap.values())
-  // Use collapsible groups when there are multiple prefixes (Ativo, Passivo)
   const useGroups = prefixGroups.length > 1
-
   const groups: FieldGroup[] = [...prefixGroups]
-  if (rootFields.length > 0) {
-    groups.push({ key: '__root', label: 'Totais', fields: rootFields, isRoot: true })
-  }
-
+  if (rootFields.length > 0) groups.push({ key: '__root', label: 'Totais', fields: rootFields, isRoot: true })
   return { groups, useGroups }
 }
 
@@ -126,11 +112,8 @@ interface CorrectionData {
 }
 
 function getEffectiveNumericValue(
-  field: FieldDef,
-  data: unknown,
-  corrections: Record<string, CorrectionData>,
-  getValue: (obj: unknown, path: string) => string,
-  scale: string,
+  field: FieldDef, data: unknown, corrections: Record<string, CorrectionData>,
+  getValue: (obj: unknown, path: string) => string, scale: string,
 ): number {
   if (field.type !== 'number') return 0
   const correction = corrections[field.path]
@@ -139,6 +122,8 @@ function getEffectiveNumericValue(
   const n = parseFloat(raw)
   return isNaN(n) ? 0 : n * getScaleMultiplier(scale)
 }
+
+// ─── Props ───────────────────────────────────────────────────────────────────
 
 interface Props {
   section: SectionDef
@@ -149,87 +134,45 @@ interface Props {
   assessment: Record<string, AssessmentItem>
   saving: string | null
   saved: string | null
+  documentName?: string
   getValue: (obj: unknown, path: string) => string
   onSave: (campo: string, valorExtraido: string, valorCorreto: string, comentario: string) => Promise<void>
   onDelete: (campo: string) => Promise<void>
   onConfirm: (campo: string) => Promise<void>
+  onBulkConfirm?: (items: { campo: string; valor_extraido: string; valor_correto: string }[]) => Promise<void>
+  readOnly?: boolean
 }
 
-export default function FieldSection({ section, data, scale, corrections, assessment, saving, saved, getValue, onSave, onDelete, onConfirm }: Props) {
+// ─── Main component ──────────────────────────────────────────────────────────
+
+export default function FieldSection({
+  section, data, scale, corrections, assessment, saving, saved, documentName,
+  getValue, onSave, onDelete, onConfirm, onBulkConfirm, readOnly = false,
+}: Props) {
   const { groups, useGroups } = buildGroups(section.fields)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [editingPath, setEditingPath] = useState<string | null>(null)
+  const [auditMode, setAuditMode] = useState(false)
 
-  // Fontes map: field_path → source text from PDF
   const fontes: Record<string, string> = data?.fontes ?? {}
-
-  // Postprocessed map: field_path → original LLM value (before model recalculation)
   const postprocessedMap: Record<string, number> = {}
   if (data?._postprocessed && Array.isArray(data._postprocessed)) {
-    for (const pp of data._postprocessed) {
-      postprocessedMap[pp.campo] = pp.original
-    }
+    for (const pp of data._postprocessed) postprocessedMap[pp.campo] = pp.original
   }
 
   function toggle(key: string) {
     setCollapsed(prev => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
   }
 
-  function renderFields(fields: FieldDef[]) {
-    return fields.map(field => {
-      const extracted = getValue(data, field.path)
-      const correction = corrections[field.path]
-      return (
-        <FieldRow
-          key={field.path}
-          label={field.label}
-          path={field.path}
-          extracted={extracted}
-          extractedFormatted={formatValue(extracted, field.type, scale)}
-          correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
-          correction={correction}
-          assessmentItem={assessment[field.path]}
-          fonte={fontes[field.path]}
-          llmOriginal={postprocessedMap[field.path]}
-          scale={scale}
-          isTotal={field.isTotal ?? false}
-          saving={saving === field.path}
-          saved={saved === field.path}
-          onSave={onSave}
-          onDelete={onDelete}
-          onConfirm={onConfirm}
-        />
-      )
-    })
-  }
-
+  // Compute totals (cascade DRE + group sums)
+  const computedMap: Record<string, number> = {}
+  const computedLabelMap: Record<string, string> = {}
   if (!useGroups) {
-    // Flat layout — DRE and Identificação
-    // Build blocks: each isTotal field has the non-total number fields before it as components
-    const hasAnyTotal = section.fields.some(f => f.isTotal)
-
-    if (!hasAnyTotal) {
-      // Identificação — no totals, render flat
-      return (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="divide-y divide-gray-50">
-            {renderFields(section.fields)}
-          </div>
-        </div>
-      )
-    }
-
-    // DRE — totals show computed sum as primary value
-    // Phase 1: compute all totals upfront so cascade can propagate
-    const computedMap: Record<string, number> = {}
-    const computedLabelMap: Record<string, string> = {}
-    let bf: FieldDef[] = []
-
-    // Helper: get effective value for a field, preferring computed total for totals
+    // Flat (DRE / Identificação) — cascade or running-sum
     function getEffective(path: string): number {
       if (path in computedMap) return computedMap[path]
       const raw = corrections[path]?.valor_correto ?? getValue(data, path)
@@ -237,183 +180,255 @@ export default function FieldSection({ section, data, scale, corrections, assess
       const n = parseFloat(raw)
       return isNaN(n) ? 0 : n * getScaleMultiplier(scale)
     }
-
+    let bf: FieldDef[] = []
     for (const field of section.fields) {
       if (field.isTotal && field.type === 'number') {
         const cascadeFormula = CASCADE_FORMULAS[field.path]
         if (cascadeFormula) {
-          // Cascade reads from computedMap (propagates previous totals)
-          computedMap[field.path] = cascadeFormula.reduce((sum, p) => sum + getEffective(p), 0)
+          computedMap[field.path] = cascadeFormula.reduce((s, p) => s + getEffective(p), 0)
           computedLabelMap[field.path] = 'Fórmula'
-          bf.length = 0
+          bf = []
         } else if (bf.length > 0) {
-          computedMap[field.path] = bf.reduce(
-            (sum, f) => sum + getEffective(f.path), 0
-          )
+          computedMap[field.path] = bf.reduce((s, f) => s + getEffective(f.path), 0)
           computedLabelMap[field.path] = 'Soma'
-          bf.length = 0
+          bf = []
         } else {
-          bf.length = 0
+          bf = []
         }
       } else if (!field.isTotal && field.type === 'number') {
         bf.push(field)
       }
     }
-
-    // Phase 2: render using pre-computed map
-    const elements: React.ReactNode[] = []
-    for (const field of section.fields) {
-      const extracted = getValue(data, field.path)
-      const correction = corrections[field.path]
-
-      elements.push(
-        <FieldRow
-          key={field.path}
-          label={field.label}
-          path={field.path}
-          extracted={extracted}
-          extractedFormatted={formatValue(extracted, field.type, scale)}
-          correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
-          correction={correction}
-          assessmentItem={assessment[field.path]}
-          computedTotal={computedMap[field.path]}
-          computedLabel={computedLabelMap[field.path]}
-          fonte={fontes[field.path]}
-          llmOriginal={postprocessedMap[field.path]}
-          scale={scale}
-          isTotal={field.isTotal ?? false}
-          saving={saving === field.path}
-          saved={saved === field.path}
-          onSave={onSave}
-          onDelete={onDelete}
-          onConfirm={onConfirm}
-        />
-      )
-    }
-
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="divide-y divide-gray-50">
-          {elements}
-        </div>
-      </div>
-    )
   }
 
-  // Grouped layout — Ativo and Passivo
-  // Pre-compute sums for each sub-group so root can use them
+  // Group sums (Ativo/Passivo)
   const groupSumMap: Record<string, number> = {}
   for (const group of groups) {
     if (group.isRoot) continue
     const nonTotalFields = group.fields.filter(f => !f.isTotal && f.type === 'number')
     groupSumMap[group.key] = nonTotalFields.reduce(
-      (sum, f) => sum + getEffectiveNumericValue(f, data, corrections, getValue, scale), 0
+      (s, f) => s + getEffectiveNumericValue(f, data, corrections, getValue, scale), 0,
+    )
+  }
+  const rootSum = Object.values(groupSumMap).reduce((a, b) => a + b, 0)
+
+  // Counters and bulk handlers
+  function fieldCounts(fields: FieldDef[]) {
+    let total = 0, corrigidos = 0, confirmados = 0
+    for (const f of fields) {
+      total++
+      const c = corrections[f.path]
+      if (!c) continue
+      const valorLLM = getValue(data, f.path)
+      if (c.valor_correto !== valorLLM) corrigidos++
+      else confirmados++
+    }
+    return { total, corrigidos, confirmados }
+  }
+
+  async function bulkConfirmGroup(fields: FieldDef[]) {
+    if (!onBulkConfirm) return
+    const toConfirm = fields
+      .filter(f => !corrections[f.path] && f.type !== 'text') // só LLM puro, ignora text livre
+      .map(f => ({
+        campo: f.path,
+        valor_extraido: getValue(data, f.path),
+        valor_correto: getValue(data, f.path),
+      }))
+    if (toConfirm.length === 0) return
+    await onBulkConfirm(toConfirm)
+  }
+
+  function exportCorrections(fields: FieldDef[]) {
+    const items = fields.map(f => {
+      const c = corrections[f.path]
+      const valor_llm = parseFloat(getValue(data, f.path) || '0') * getScaleMultiplier(scale)
+      const valor_final = c
+        ? parseFloat(c.valor_correto || '0') * getScaleMultiplier(scale)
+        : valor_llm
+      return {
+        campo: f.path,
+        valor_llm: isNaN(valor_llm) ? null : valor_llm,
+        valor_final: isNaN(valor_final) ? null : valor_final,
+        acao: c ? (c.valor_correto !== getValue(data, f.path) ? 'corrigido' : 'confirmado') : 'llm',
+        usuario: c?.confirmado_por ?? '',
+        timestamp: c?.confirmado_em ?? '',
+      }
+    })
+    const payload = {
+      documento_id: documentName ?? '',
+      cnpj: data?.cnpj ?? data?.identificacao?.cnpj ?? '',
+      periodo: data?.identificacao?.periodo ?? '',
+      correcoes: items,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${documentName ?? 'correcoes'}__${section.label}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
+
+  function renderRowsForGroup(group: FieldGroup) {
+    return group.fields.map(field => {
+      const extracted = getValue(data, field.path)
+      const correction = corrections[field.path]
+      // Compute total for this row
+      let computedTotal: number | undefined = undefined
+      let computedLabel: string | undefined = undefined
+      if (field.isTotal && field.type === 'number') {
+        if (useGroups) {
+          computedTotal = group.isRoot ? rootSum : (groupSumMap[group.key] ?? 0)
+          computedLabel = group.isRoot ? 'Soma dos blocos' : 'Soma'
+        } else if (field.path in computedMap) {
+          computedTotal = computedMap[field.path]
+          computedLabel = computedLabelMap[field.path]
+        }
+      }
+      const llmOriginal = postprocessedMap[field.path]
+      const isDimmed = editingPath !== null && editingPath !== field.path
+
+      const common = {
+        field, extracted, correction, scale,
+        assessmentItem: assessment[field.path], fonte: fontes[field.path],
+        llmOriginal, computedTotal, computedLabel,
+        readOnly, dimmed: isDimmed,
+        saving: saving === field.path, saved: saved === field.path,
+        getValue, onSave, onDelete,
+        editingPath, setEditingPath,
+      }
+
+      return auditMode
+        ? <FieldRowAudit key={field.path} {...common} />
+        : <FieldRowNormal key={field.path} {...common} />
+    })
+  }
+
+  function GroupHeader({ group }: { group: FieldGroup }) {
+    if (group.isRoot) return null
+    const counts = fieldCounts(group.fields.filter(f => !f.isTotal))
+    const llmCount = counts.total - counts.corrigidos - counts.confirmados
+    return (
+      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <button onClick={() => toggle(group.key)} className="text-gray-400 hover:text-gray-700">
+            <IconChevronRight
+              size={16}
+              className={`transition-transform ${!collapsed.has(group.key) ? 'rotate-90' : ''}`}
+            />
+          </button>
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium text-gray-800 leading-tight">{group.label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {counts.total} {counts.total === 1 ? 'campo' : 'campos'}
+              {counts.corrigidos > 0 && <> · <span className="text-blue-600">{counts.corrigidos} corrigido{counts.corrigidos !== 1 ? 's' : ''}</span></>}
+              {counts.confirmados > 0 && <> · <span className="text-blue-600">{counts.confirmados} confirmado{counts.confirmados !== 1 ? 's' : ''}</span></>}
+            </p>
+          </div>
+        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setAuditMode(v => !v)}
+              className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                auditMode ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {auditMode ? <IconEyeOff size={12} /> : <IconEye size={12} />}
+              {auditMode ? 'Ocultar originais' : 'Mostrar originais'}
+            </button>
+            {auditMode && (
+              <button
+                onClick={() => exportCorrections(group.fields)}
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+              >
+                <IconDownload size={12} /> Exportar
+              </button>
+            )}
+            {llmCount > 0 && (
+              <button
+                onClick={() => bulkConfirmGroup(group.fields.filter(f => !f.isTotal))}
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium"
+              >
+                <IconCheck size={12} /> Confirmar tudo
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     )
   }
 
+  // Single flat section (Identificação / DRE) — render as one card with toolbar
+  if (!useGroups) {
+    const fields = section.fields
+    const counts = fieldCounts(fields.filter(f => !f.isTotal))
+    const llmCount = counts.total - counts.corrigidos - counts.confirmados
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium text-gray-800 leading-tight">{section.label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {counts.total} {counts.total === 1 ? 'campo' : 'campos'}
+              {counts.corrigidos > 0 && <> · <span className="text-blue-600">{counts.corrigidos} corrigido{counts.corrigidos !== 1 ? 's' : ''}</span></>}
+              {counts.confirmados > 0 && <> · <span className="text-blue-600">{counts.confirmados} confirmado{counts.confirmados !== 1 ? 's' : ''}</span></>}
+            </p>
+          </div>
+          {!readOnly && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setAuditMode(v => !v)}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border ${
+                  auditMode ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {auditMode ? <IconEyeOff size={12} /> : <IconEye size={12} />}
+                {auditMode ? 'Ocultar originais' : 'Mostrar originais'}
+              </button>
+              {auditMode && (
+                <button
+                  onClick={() => exportCorrections(fields)}
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                >
+                  <IconDownload size={12} /> Exportar
+                </button>
+              )}
+              {llmCount > 0 && (
+                <button
+                  onClick={() => bulkConfirmGroup(fields.filter(f => !f.isTotal))}
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium"
+                >
+                  <IconCheck size={12} /> Confirmar tudo
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        <div>{renderRowsForGroup({ key: section.label, label: section.label, fields })}</div>
+      </div>
+    )
+  }
+
+  // Grouped layout (Ativo / Passivo)
   return (
     <div className="space-y-3">
       {groups.map(group => {
         if (group.isRoot) {
-          // Root total = sum of sub-group computed sums
-          const rootSum = Object.values(groupSumMap).reduce((a, b) => a + b, 0)
-
           return (
             <div key={group.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="divide-y divide-gray-50">
-                {group.fields.map(field => {
-                  const extracted = getValue(data, field.path)
-                  const correction = corrections[field.path]
-
-                  return (
-                    <FieldRow
-                      key={field.path}
-                      label={field.label}
-                      path={field.path}
-                      extracted={extracted}
-                      extractedFormatted={formatValue(extracted, field.type, scale)}
-                      correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
-                      correction={correction}
-                      assessmentItem={assessment[field.path]}
-                      computedTotal={field.isTotal ? rootSum : undefined}
-                      computedLabel="Soma dos blocos"
-                      fonte={fontes[field.path]}
-                      scale={scale}
-                      isTotal={field.isTotal ?? false}
-                      saving={saving === field.path}
-                      saved={saved === field.path}
-                      onSave={onSave}
-                      onDelete={onDelete}
-                      onConfirm={onConfirm}
-                    />
-                  )
-                })}
-              </div>
+              <div>{renderRowsForGroup(group)}</div>
             </div>
           )
         }
-
         const isOpen = !collapsed.has(group.key)
-        const corrCount = group.fields.filter(f => corrections[f.path]).length
-        const totalField = [...group.fields].reverse().find(f => f.isTotal)
-        const calculatedSum = groupSumMap[group.key] ?? 0
-
         return (
-          <div key={group.key} className="border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            {/* Group header — no sum, just label */}
-            <button
-              onClick={() => toggle(group.key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                isOpen ? 'bg-gray-50 border-b border-gray-200' : 'bg-white hover:bg-gray-50'
-              }`}
-            >
-              <svg
-                className={`w-4 h-4 text-gray-400 transition-transform duration-150 shrink-0 ${isOpen ? 'rotate-90' : ''}`}
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-
-              <span className="text-sm font-semibold text-gray-700">{group.label}</span>
-
-              {corrCount > 0 && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                  {corrCount} correç{corrCount !== 1 ? 'ões' : 'ão'}
-                </span>
-              )}
-            </button>
-
-            {isOpen && (
-              <div className="bg-white divide-y divide-gray-50 animate-fade-in">
-                {group.fields.map(field => {
-                  const extracted = getValue(data, field.path)
-                  const correction = corrections[field.path]
-
-                  return (
-                    <FieldRow
-                      key={field.path}
-                      label={field.label}
-                      path={field.path}
-                      extracted={extracted}
-                      extractedFormatted={formatValue(extracted, field.type, scale)}
-                      correctionFormatted={correction ? formatValue(correction.valor_correto, field.type, scale) : undefined}
-                      correction={correction}
-                      assessmentItem={assessment[field.path]}
-                      computedTotal={field.isTotal ? calculatedSum : undefined}
-                      computedLabel="Soma"
-                      fonte={fontes[field.path]}
-                      scale={scale}
-                      isTotal={field.isTotal ?? false}
-                      saving={saving === field.path}
-                      saved={saved === field.path}
-                      onSave={onSave}
-                      onDelete={onDelete}
-                      onConfirm={onConfirm}
-                    />
-                  )
-                })}
-              </div>
-            )}
+          <div key={group.key} className="border border-gray-200 rounded-xl shadow-sm overflow-hidden bg-white">
+            <GroupHeader group={group} />
+            {isOpen && <div>{renderRowsForGroup(group)}</div>}
           </div>
         )
       })}
@@ -421,335 +436,355 @@ export default function FieldSection({ section, data, scale, corrections, assess
   )
 }
 
-// ─── FieldRow ────────────────────────────────────────────────────────────────
+// ─── FieldRowNormal ──────────────────────────────────────────────────────────
 
-interface RowProps {
-  label: string
-  path: string
+interface RowCommon {
+  field: FieldDef
   extracted: string
-  extractedFormatted: string
-  correctionFormatted?: string
   correction?: CorrectionData
   assessmentItem?: AssessmentItem
-  /** For total fields: the computed sum that becomes the displayed value */
-  computedTotal?: number
-  /** For total fields: label describing how it was computed */
-  computedLabel?: string
-  /** Source text from PDF used to extract this field */
   fonte?: string
-  /** Original LLM value before post-processing (if recalculated) */
   llmOriginal?: number
+  computedTotal?: number
+  computedLabel?: string
   scale: string
-  isTotal: boolean
+  readOnly: boolean
+  dimmed: boolean
   saving: boolean
   saved: boolean
+  getValue: (obj: unknown, path: string) => string
   onSave: (campo: string, valorExtraido: string, valorCorreto: string, comentario: string) => Promise<void>
   onDelete: (campo: string) => Promise<void>
-  onConfirm: (campo: string) => Promise<void>
+  editingPath: string | null
+  setEditingPath: (p: string | null) => void
 }
 
-const ERROR_TAGS = [
-  'Valor incorreto (OCR)',
-  'Dígito errado',
-  'Escala incorreta (mil/milhão)',
-  'Campo trocado',
-  'Sinal invertido (+/-)',
-  'Valor ausente no PDF',
-  'Faltou somar subconta',
-  'IR/CSLL diferido não incluído',
-]
-
-function FieldRow({ label, path, extracted, extractedFormatted, correctionFormatted, correction, assessmentItem, computedTotal, computedLabel, fonte, llmOriginal, scale, isTotal, saving, saved, onSave, onDelete, onConfirm }: RowProps) {
+function FieldRowNormal(props: RowCommon) {
+  const { field, extracted, correction, scale, readOnly, dimmed, saving, saved,
+          getValue: _gv, onSave, onDelete, editingPath, setEditingPath,
+          computedTotal, computedLabel, llmOriginal } = props
+  void _gv
+  const isEditing = editingPath === field.path
+  const isReviewed = !!correction
+  const valueChanged = isReviewed && correction!.valor_correto !== extracted
+  const isTotal = field.isTotal ?? false
   const mult = getScaleMultiplier(scale)
-  // Display value in UI scale (unit), store in JSON scale
-  const extractedScaled = (() => {
-    const n = parseFloat(extracted)
-    return isNaN(n) ? extracted : String(n * mult)
-  })()
-  const corrScaled = correction?.valor_correto
-    ? (() => { const n = parseFloat(correction.valor_correto); return isNaN(n) ? correction.valor_correto : String(n * mult) })()
-    : undefined
-  const [editing, setEditing]       = useState(false)
-  const [corrValue, setCorrValue]   = useState(corrScaled ?? extractedScaled)
-  const [comment, setComment]       = useState(correction?.comentario ?? '')
-  const [freeText, setFreeText]     = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const skipScale = field.type === 'enum' || field.type === 'text' || field.type === 'date'
 
-  const isConfirmed  = correction?.status === 'confirmado'
-  const hasCorrBadge = !!correction
+  // Effective displayed value (JSON-scale, before unit multiplication)
+  const effectiveRaw = isReviewed ? correction!.valor_correto : extracted
+  const effectiveFormatted = field.isTotal && field.type === 'number' && computedTotal !== undefined
+    ? brl.format(computedTotal)
+    : formatValue(effectiveRaw, field.type, scale, field.options)
+
+  // Edit form state
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [editValue, setEditValue] = useState(() => {
+    if (!effectiveRaw) return ''
+    if (skipScale) return effectiveRaw
+    const n = parseFloat(effectiveRaw)
+    return isNaN(n) ? effectiveRaw : String(n * mult)
+  })
+  useEffect(() => {
+    if (isEditing) {
+      setEditValue(() => {
+        if (!effectiveRaw) return ''
+        if (skipScale) return effectiveRaw
+        const n = parseFloat(effectiveRaw)
+        return isNaN(n) ? effectiveRaw : String(n * mult)
+      })
+      setTimeout(() => inputRef.current?.focus(), 10)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing])
 
   function startEdit() {
-    setCorrValue(corrScaled ?? extractedScaled)
-    setComment(correction?.comentario ?? '')
-    setFreeText(!!correction?.comentario && !ERROR_TAGS.includes(correction.comentario))
-    setEditing(true)
+    if (readOnly || isEditing) return
+    setEditingPath(field.path)
+  }
+  function cancelEdit() { setEditingPath(null) }
+  async function commitEdit() {
+    let toStore = editValue
+    if (!skipScale) {
+      const n = parseFloat(editValue.replace(',', '.'))
+      if (!isNaN(n)) toStore = String(n / mult)
+    }
+    await onSave(field.path, extracted, toStore, '')
+    setEditingPath(null)
+  }
+  async function restoreOriginal() {
+    if (!correction) return
+    await onDelete(field.path)
+    setEditingPath(null)
+  }
+  function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
   }
 
-  function selectTag(tag: string) { setComment(tag); setFreeText(false) }
-  function activateFreeText()     { setComment(''); setFreeText(true) }
+  // Total divergence indicator
+  const llmTotalScaled = llmOriginal !== undefined ? llmOriginal : (parseFloat(extracted || '0') * mult)
+  const totalDivergence = isTotal && field.type === 'number' && computedTotal !== undefined &&
+    Math.abs((computedTotal ?? 0) - llmTotalScaled) > 0.01 && !isNaN(llmTotalScaled)
+  const totalDelta = totalDivergence ? (computedTotal ?? 0) - llmTotalScaled : 0
 
-  async function handleSave() {
-    // Convert back to JSON scale for storage
-    const n = parseFloat(corrValue)
-    const valueToStore = isNaN(n) ? corrValue : String(n / mult)
-    await onSave(path, extracted, valueToStore, comment)
-    setEditing(false)
-  }
-
-  function handleCancel() {
-    setCorrValue(corrScaled ?? extractedScaled)
-    setComment(correction?.comentario ?? '')
-    setFreeText(false)
-    setEditing(false)
-  }
-
-  async function handleConfirm() {
-    setConfirming(true)
-    await onConfirm(path)
-    setConfirming(false)
-  }
-
-  const leftBorder = isConfirmed
-    ? 'border-l-2 border-l-emerald-400'
-    : hasCorrBadge
-      ? 'border-l-2 border-l-amber-400'
-      : 'border-l-2 border-l-transparent'
-
-  const rowBg = isTotal ? 'bg-gray-50/80' : 'bg-white'
+  const labelEl = (
+    <div className={`flex items-center gap-2 min-w-0 ${isTotal ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
+      {isTotal && <IconChevronRight size={14} className="text-gray-400 shrink-0" />}
+      <span className={`text-sm truncate ${isTotal ? '' : ''}`} title={field.label}>
+        {field.label}
+      </span>
+    </div>
+  )
 
   return (
-    <div className={`${rowBg} ${leftBorder} group`}>
-      <div className="px-4 py-2.5 flex items-center gap-3">
-        {/* Label */}
-        <div className="w-52 shrink-0 flex items-center gap-1.5">
-          <span className={`text-sm leading-tight ${isTotal ? 'font-semibold text-gray-800' : 'text-gray-600'}`}>
-            {label}
-          </span>
-          {assessmentItem && !correction && (
-            <span
-              title={assessmentItem.motivo}
-              className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full cursor-help shrink-0 ${
-                assessmentItem.confianca === 'baixa'
-                  ? 'bg-red-50 text-red-600 border border-red-200'
-                  : 'bg-orange-50 text-orange-600 border border-orange-200'
-              }`}
-            >
-              {assessmentItem.confianca === 'baixa' ? '⚠ baixa' : '~ média'}
-            </span>
-          )}
-          {fonte && (
-            <span
-              title={fonte}
-              className="inline-flex items-center justify-center w-4 h-4 rounded-full cursor-help shrink-0 bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-500 transition-colors text-[10px] font-bold"
-            >
-              i
-            </span>
-          )}
-        </div>
+    <div
+      className={`group transition-all ${dimmed ? 'opacity-40' : ''} ${
+        isEditing ? 'bg-blue-50/60 border-l-2 border-blue-400' : 'border-l-2 border-transparent hover:bg-gray-50'
+      }`}
+    >
+      <div
+        role="button"
+        tabIndex={readOnly || isEditing ? -1 : 0}
+        onClick={() => !isEditing && startEdit()}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !isEditing) {
+            e.preventDefault()
+            startEdit()
+          }
+        }}
+        className={`grid grid-cols-[220px_1fr_120px] gap-3 items-center px-4 py-2.5 border-b border-gray-100 ${
+          isEditing ? 'cursor-default' : (readOnly ? 'cursor-default' : 'cursor-pointer')
+        } focus:outline-none focus:bg-gray-50`}
+      >
+        {labelEl}
 
-        {/* Value */}
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          {isTotal && computedTotal !== undefined ? (
-            <>
-              {/* Total: show computed sum as primary value */}
-              <span className="text-sm font-mono font-bold tabular-nums text-gray-900">
-                {brl.format(computedTotal)}
-              </span>
-              {/* Badge showing LLM-extracted value if different */}
-              {(() => {
-                // Use original LLM value (before post-processing) if available
-                const llmVal = llmOriginal !== undefined
-                  ? llmOriginal * mult
-                  : parseFloat(extracted) * mult || 0
-                const llmFormatted = llmOriginal !== undefined
-                  ? brl.format(llmVal)
-                  : (extractedFormatted || '—')
-                if (Math.abs(computedTotal - llmVal) > 0.01 && llmFormatted !== '—') {
-                  return (
-                    <span
-                      title={`${computedLabel ?? 'Soma'} dos componentes\nValor extraído pelo LLM: ${llmFormatted}`}
-                      className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full cursor-help shrink-0 bg-amber-50 text-amber-600 border border-amber-200"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z" />
-                      </svg>
-                      LLM: {llmFormatted}
-                    </span>
-                  )
-                }
-                return null
-              })()}
-            </>
+        {/* Value column */}
+        <div className="flex items-center gap-2 min-w-0">
+          {isEditing ? (
+            <EditForm
+              field={field}
+              value={editValue}
+              setValue={setEditValue}
+              skipScale={skipScale}
+              inputRef={inputRef}
+              onKey={onKey}
+              onSave={commitEdit}
+              onCancel={cancelEdit}
+              onRestore={isReviewed ? restoreOriginal : undefined}
+              llmOriginal={
+                llmOriginal !== undefined
+                  ? brl.format(llmOriginal)
+                  : (field.type === 'number'
+                    ? brl.format((parseFloat(extracted || '0') || 0) * mult)
+                    : formatValue(extracted, field.type, scale, field.options))
+              }
+              saving={saving}
+              valueChanged={valueChanged}
+            />
           ) : (
             <>
-              <span className={`text-sm font-mono tabular-nums ${
-                hasCorrBadge ? 'line-through text-gray-300' : isTotal ? 'font-bold text-gray-900' : 'text-gray-700'
-              }`}>
-                {extractedFormatted || <span className="text-gray-200 font-sans text-xs not-italic">—</span>}
+              <span className={`font-mono text-sm tabular-nums truncate ${isReviewed ? 'font-medium text-gray-900' : 'text-gray-800'} ${isTotal ? 'font-semibold' : ''}`}>
+                {effectiveFormatted || <span className="text-gray-300">—</span>}
               </span>
-              {hasCorrBadge && (
-                <span className={`flex items-center gap-1 text-sm font-mono font-semibold tabular-nums ${
-                  isConfirmed ? 'text-emerald-700' : 'text-amber-700'
-                }`}>
-                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                  {correctionFormatted ?? correction!.valor_correto}
+              {!readOnly && !dimmed && (
+                <IconPencil
+                  size={13}
+                  className={`text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ${isReviewed ? 'group-hover:text-blue-600' : 'group-hover:text-gray-500'}`}
+                />
+              )}
+              {saved && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 font-medium">
+                  <IconCheck size={11} /> Salvo
                 </span>
               )}
             </>
           )}
         </div>
 
-        {/* Actions — visible on hover or when has correction */}
-        <div className={`flex items-center gap-1.5 shrink-0 transition-opacity ${hasCorrBadge || editing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-          {saved && (
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-              Salvo
-            </span>
-          )}
+        {/* Origin column */}
+        {!isEditing && (
+          <div className="flex items-center justify-end gap-1 text-[11px] shrink-0">
+            {totalDivergence ? (
+              <span
+                className="inline-flex items-center gap-1 text-amber-600 cursor-help"
+                title={`Total do LLM: ${brl.format(llmTotalScaled)} · diferença: ${totalDelta >= 0 ? '+' : ''}${brl.format(totalDelta)}`}
+              >
+                <IconAlertCircle size={12} /> Difere {totalDelta >= 0 ? '+' : ''}{brl.format(totalDelta)}
+              </span>
+            ) : isReviewed ? (
+              <span
+                className="inline-flex items-center gap-1 text-blue-600 font-medium"
+                title={
+                  valueChanged
+                    ? `Corrigido${correction?.confirmado_em ? ` em ${(correction.confirmado_em || '').substring(0, 10).split('-').reverse().join('/')}` : ''} · Original do LLM: ${formatValue(extracted, field.type, scale, field.options)}`
+                    : `Confirmado${correction?.confirmado_em ? ` em ${(correction.confirmado_em || '').substring(0, 10).split('-').reverse().join('/')}` : ''}`
+                }
+              >
+                <IconUserCheck size={12} /> Revisado
+              </span>
+            ) : isTotal ? (
+              <span /> /* totais sem divergência: vazio */
+            ) : (
+              <span className="inline-flex items-center gap-1 text-gray-400">
+                <IconSparkles size={12} /> LLM
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
-          {hasCorrBadge && !editing && !isConfirmed && (
-            <button
-              onClick={handleConfirm}
-              disabled={confirming}
-              className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-medium transition-all disabled:opacity-40"
+// ─── Edit form (inline) ──────────────────────────────────────────────────────
+
+function EditForm({
+  field, value, setValue, skipScale, inputRef, onKey, onSave, onCancel, onRestore, llmOriginal, saving, valueChanged,
+}: {
+  field: FieldDef
+  value: string
+  setValue: (v: string) => void
+  skipScale: boolean
+  inputRef: React.RefObject<HTMLInputElement>
+  onKey: (e: React.KeyboardEvent<HTMLInputElement>) => void
+  onSave: () => void
+  onCancel: () => void
+  onRestore?: () => void
+  llmOriginal: string
+  saving: boolean
+  valueChanged: boolean
+}) {
+  void valueChanged
+  return (
+    <div className="w-full flex flex-col gap-2 py-1">
+      <div className="flex items-center gap-2">
+        {field.type === 'enum' && field.options ? (
+          field.options.length <= 4 ? (
+            <div className="flex flex-wrap gap-2">
+              {field.options.map(opt => (
+                <label
+                  key={opt.value}
+                  className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border cursor-pointer ${
+                    String(opt.value) === value
+                      ? 'bg-blue-50 border-blue-400 text-blue-700'
+                      : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={`enum-${field.path}`}
+                    checked={String(opt.value) === value}
+                    onChange={() => setValue(String(opt.value))}
+                  />
+                  <span className="font-semibold">{opt.value}</span> · {opt.label}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <select
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              className="font-mono text-sm px-2 py-1.5 border border-gray-300 rounded-md w-48"
+              autoFocus
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-              {confirming ? '…' : 'Confirmar'}
-            </button>
-          )}
-
-          {isConfirmed && !editing && (
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Confirmado
-            </span>
-          )}
-
-          {hasCorrBadge && !editing && (
-            <button
-              onClick={() => onDelete(path)}
-              title="Remover correção"
-              className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
-
-          {!editing && (
-            <button
-              onClick={startEdit}
-              className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${
-                hasCorrBadge
-                  ? isConfirmed
-                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
-                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
-                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100 border border-gray-200 hover:text-gray-700'
-              }`}
-            >
-              {hasCorrBadge ? 'Editar' : 'Corrigir'}
-            </button>
-          )}
+              <option value="">—</option>
+              {field.options.map(o => <option key={o.value} value={o.value}>{o.value} · {o.label}</option>)}
+            </select>
+          )
+        ) : (
+          <>
+            {field.type === 'number' && !skipScale && (
+              <span className="text-xs text-gray-400 font-medium">R$</span>
+            )}
+            <input
+              ref={inputRef}
+              type={field.type === 'date' ? 'date' : 'text'}
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              onKeyDown={onKey}
+              className="font-mono text-sm tabular-nums px-2 py-1.5 border border-gray-300 rounded-md w-[180px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              autoFocus
+              onClick={e => e.stopPropagation()}
+            />
+          </>
+        )}
+        <div className="flex items-center gap-1.5 ml-auto" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          >
+            <IconX size={12} /> Cancelar
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-40"
+          >
+            <IconCheck size={12} /> {saving ? 'Salvando…' : 'Salvar'}
+          </button>
         </div>
       </div>
 
-      {/* Audit trail */}
-      {isConfirmed && (correction?.confirmado_por || correction?.confirmado_em) && (
-        <div className="px-4 pb-2 flex items-center gap-1.5" style={{ paddingLeft: 'calc(13rem + 1rem)' }}>
-          <svg className="w-3 h-3 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          <span className="text-[10px] text-emerald-600">
-            Confirmado{correction.confirmado_por ? ` por ${correction.confirmado_por}` : ''}
-            {correction.confirmado_em ? ` em ${correction.confirmado_em.substring(0, 19).replace('T', ' ')}` : ''}
-            {correction.comentario ? ` · ${correction.comentario}` : ''}
+      <div className="flex items-center gap-3 text-[11px]">
+        <span className="text-gray-500">Original do LLM: <span className="font-mono">{llmOriginal || '—'}</span></span>
+        {onRestore && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRestore() }}
+            className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+          >
+            <IconArrowBackUp size={11} /> Restaurar original
+          </button>
+        )}
+        <span className="text-gray-400 ml-auto">Enter para salvar · Esc para cancelar</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── FieldRowAudit (4-column audit mode) ─────────────────────────────────────
+
+function FieldRowAudit(props: RowCommon) {
+  const { field, extracted, correction, scale, computedTotal, llmOriginal } = props
+  const isReviewed = !!correction
+  const mult = getScaleMultiplier(scale)
+  const skipScale = field.type === 'enum' || field.type === 'text' || field.type === 'date'
+
+  // LLM value (raw): prefer postprocessed original if available
+  const llmFormatted = llmOriginal !== undefined
+    ? brl.format(llmOriginal)
+    : formatValue(extracted, field.type, scale, field.options)
+  const finalRaw = isReviewed ? correction!.valor_correto : extracted
+  const finalFormatted = field.isTotal && field.type === 'number' && computedTotal !== undefined
+    ? brl.format(computedTotal)
+    : formatValue(finalRaw, field.type, scale, field.options)
+
+  // Delta
+  const llmNum = skipScale ? NaN : (llmOriginal !== undefined ? llmOriginal : (parseFloat(extracted || '0') * mult))
+  const finalNum = skipScale ? NaN : (field.isTotal && computedTotal !== undefined ? computedTotal : (parseFloat(finalRaw || '0') * mult))
+  const diverges = !isNaN(llmNum) && !isNaN(finalNum) && Math.abs(llmNum - finalNum) > 0.01
+  const delta = diverges ? finalNum - llmNum : 0
+
+  return (
+    <div className={`grid grid-cols-[200px_1fr_1fr_auto] gap-3 items-center px-4 py-2.5 border-b border-gray-100 ${diverges ? 'bg-blue-50/40' : ''}`}>
+      <span className="text-sm text-gray-700 truncate" title={field.label}>{field.label}</span>
+      <span className={`font-mono text-sm tabular-nums text-gray-400 ${diverges ? 'line-through' : ''}`}>
+        {llmFormatted || '—'}
+      </span>
+      <span className={`font-mono text-sm tabular-nums ${isReviewed ? 'font-medium text-gray-900' : 'text-gray-800'}`}>
+        {finalFormatted || '—'}
+      </span>
+      <div className="text-[11px] shrink-0 min-w-[80px] text-right">
+        {diverges ? (
+          <span className="inline-flex items-center gap-1 text-blue-600">
+            <IconPencil size={11} /> {delta >= 0 ? '+' : ''}{brl.format(delta)}
           </span>
-        </div>
-      )}
-
-      {/* Edit form */}
-      {editing && (
-        <div className="border-t border-gray-100 bg-gray-50/80 px-4 py-3 space-y-3 animate-fade-in">
-          <div className="flex gap-3 items-center">
-            <label className="text-xs font-medium text-gray-500 w-28 shrink-0">Valor correto</label>
-            <input
-              value={corrValue}
-              onChange={e => setCorrValue(e.target.value)}
-              className="flex-1 text-sm font-mono border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0F2137]/15 focus:border-[#0F2137]/30 bg-white"
-              placeholder="Valor correto…"
-              autoFocus
-            />
-          </div>
-
-          <div className="flex gap-3 items-start">
-            <label className="text-xs font-medium text-gray-500 w-28 shrink-0 pt-1">Tipo de erro</label>
-            <div className="flex-1 space-y-2">
-              <div className="flex flex-wrap gap-1.5">
-                {ERROR_TAGS.map(tag => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => selectTag(tag)}
-                    className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
-                      comment === tag && !freeText
-                        ? 'bg-[#0F2137] text-white border-[#0F2137]'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-[#0F2137]/30 hover:text-[#0F2137]'
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={activateFreeText}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
-                    freeText
-                      ? 'bg-[#0F2137] text-white border-[#0F2137]'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-[#0F2137]/30 hover:text-[#0F2137]'
-                  }`}
-                >
-                  Outro…
-                </button>
-              </div>
-              {freeText && (
-                <input
-                  value={comment}
-                  onChange={e => setComment(e.target.value)}
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0F2137]/15 focus:border-[#0F2137]/30 bg-white"
-                  placeholder="Descreva o erro…"
-                  autoFocus
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="flex gap-2 justify-end pt-0.5">
-            <button
-              onClick={handleCancel}
-              className="text-xs px-3.5 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0F2137] text-white hover:bg-[#1a3050] disabled:opacity-40 transition-all font-medium"
-            >
-              {saving ? 'Salvando…' : 'Salvar correção'}
-            </button>
-          </div>
-        </div>
-      )}
+        ) : (
+          <span className="text-gray-300">=</span>
+        )}
+      </div>
     </div>
   )
 }

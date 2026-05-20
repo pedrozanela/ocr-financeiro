@@ -1,7 +1,8 @@
 export interface FieldDef {
   label: string
   path: string          // dot-separated path in the JSON
-  type: 'number' | 'text' | 'date'
+  type: 'number' | 'text' | 'date' | 'enum'
+  options?: { value: number; label: string }[]  // for enum type
   isTotal?: boolean
 }
 
@@ -17,7 +18,20 @@ export const SECTIONS: SectionDef[] = [
       { label: 'Razão Social',           path: 'razao_social',                        type: 'text' },
       { label: 'CNPJ',                   path: 'cnpj',                                type: 'text' },
       { label: 'Período',                path: 'identificacao.periodo',               type: 'date' },
-      { label: 'Tipo de Demonstrativo',  path: 'identificacao.tipo_demonstrativo',    type: 'text' },
+      { label: 'Documento',              path: 'identificacao.tipo_documento',        type: 'enum',
+        options: [
+          { value: 1, label: 'Balanço' },
+          { value: 2, label: 'Balancete' },
+        ] },
+      { label: 'Tipo de Demonstrativo',  path: 'identificacao.tipo_demonstrativo',    type: 'enum',
+        options: [
+          { value: 1, label: 'Anual' },
+          { value: 2, label: 'Semestral' },
+          { value: 3, label: 'Trimestral' },
+          { value: 4, label: 'Mensal' },
+        ] },
+      { label: 'Número de meses do demonstrativo', path: 'identificacao.numeroMeses', type: 'enum',
+        options: Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: String(i + 1) })) },
       { label: 'Moeda',                  path: 'identificacao.moeda',                 type: 'text' },
       { label: 'Escala de Valores',      path: 'identificacao.escala_valores',        type: 'text' },
     ],
