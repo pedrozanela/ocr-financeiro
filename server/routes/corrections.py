@@ -1,4 +1,5 @@
 import json
+from typing import List
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from ..db import execute_sql, execute_update
@@ -15,6 +16,16 @@ class Correction(BaseModel):
     valor_extraido: str
     valor_correto: str
     comentario: str = ""
+    # Quando True, já marca a correção como confirmada (usado pelo botão Salvar do novo UI
+    # e pelo Confirmar tudo). Quando False (legado), entra como pendente.
+    auto_confirm: bool = False
+
+
+class BulkCorrections(BaseModel):
+    document_name: str
+    tipo_entidade: str = ""
+    periodo: str = ""
+    items: List[dict]  # [{campo, valor_extraido, valor_correto, comentario?}]
 
 
 def _current_user(request: Request) -> str:
@@ -26,11 +37,40 @@ def _current_user(request: Request) -> str:
     return "unknown"
 
 
+def _raise_if_finalized(document_name: str, tipo_entidade: str = "", periodo: str = ""):
+    """Bloqueia edição se o documento já foi submetido. Verifica por (te, per) se informado,
+    senão checa o documento inteiro."""
+    where = "document_name = :name AND status = 'finalizado'"
+    params = [{"name": "name", "value": document_name}]
+    if tipo_entidade or periodo:
+        where += " AND COALESCE(tipo_entidade,'') = :te AND COALESCE(periodo,'') = :per"
+        params.append({"name": "te",  "value": tipo_entidade or ""})
+        params.append({"name": "per", "value": periodo or ""})
+    rows = execute_sql(
+        f"SELECT 1 FROM {RESULTS_FINAL_TABLE} WHERE {where} LIMIT 1",
+        params,
+    )
+    if rows:
+        from fastapi import HTTPException
+        raise HTTPException(409, "Documento já foi submetido — edições não são permitidas")
+
+
+def _to_int_or_none(v):
+    """Convert value to int, or None if empty/invalid."""
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return None
+
+
 def _update_resultados_final(document_name: str, tipo_entidade: str, periodo: str, user: str):
     """Rebuild resultados_final for a specific record by applying all corrections on top of extracted_json."""
     # Get original extracted_json
     rows = execute_sql(
-        f"""SELECT extracted_json, razao_social, cnpj, tipo_demonstrativo, moeda, escala_valores
+        f"""SELECT extracted_json, razao_social, cnpj, tipo_demonstrativo,
+                   tipo_documento, numeromeses, moeda, escala_valores
             FROM {RESULTS_TABLE}
             WHERE document_name = :name
               AND COALESCE(tipo_entidade, '') = :te AND COALESCE(periodo, '') = :per
@@ -76,33 +116,40 @@ def _update_resultados_final(document_name: str, tipo_entidade: str, periodo: st
                 obj = None
                 break
         if obj is not None and isinstance(obj, dict):
-            # Try to set as number, fallback to string
+            # Try to set as number, fallback to string. Preserve int when whole.
             try:
-                obj[parts[-1]] = float(valor)
+                f = float(valor)
+                obj[parts[-1]] = int(f) if f.is_integer() and "." not in str(valor) else f
             except (ValueError, TypeError):
                 obj[parts[-1]] = valor
 
     corrected_json = json.dumps(data, ensure_ascii=False)
-    esc_json = corrected_json.replace("'", "''")
-    esc_name = document_name.replace("'", "''")
-    esc_rs = str(row.get("razao_social") or "").replace("'", "''")
-    esc_cnpj = str(row.get("cnpj") or "").replace("'", "''")
-    esc_td = str(row.get("tipo_demonstrativo") or "").replace("'", "''")
-    esc_moeda = str(row.get("moeda") or "").replace("'", "''")
-    esc_escala = str(row.get("escala_valores") or "").replace("'", "''")
-    esc_user = user.replace("'", "''")
+
+    # Preferir os valores corrigidos do JSON (incluem correções de enums via UI)
+    # Identificação fica em data["identificacao"] no JSON
+    ident = data.get("identificacao", {}) if isinstance(data, dict) else {}
+    td_val = _to_int_or_none(ident.get("tipo_demonstrativo", row.get("tipo_demonstrativo")))
+    tdoc_val = _to_int_or_none(ident.get("tipo_documento", row.get("tipo_documento")))
+    nm_val = _to_int_or_none(ident.get("numeroMeses", row.get("numeromeses")))
+    rs_val = ident.get("razao_social") or row.get("razao_social") or ""
+    cnpj_val = ident.get("cnpj") or row.get("cnpj") or ""
+    moeda_val = ident.get("moeda") or row.get("moeda") or ""
+    escala_val = ident.get("escala_valores") or row.get("escala_valores") or ""
 
     execute_update(
         f"""INSERT INTO {RESULTS_FINAL_TABLE}
                 (document_name, tipo_entidade, periodo, extracted_json, razao_social, cnpj,
-                 tipo_demonstrativo, moeda, escala_valores, atualizado_em, atualizado_por)
-            VALUES (:name, :te, :per, :json, :rs, :cnpj, :td, :moeda, :escala,
+                 tipo_demonstrativo, tipo_documento, numeroMeses, moeda, escala_valores,
+                 atualizado_em, atualizado_por)
+            VALUES (:name, :te, :per, :json, :rs, :cnpj, :td, :tdoc, :nm, :moeda, :escala,
                     NOW(), :user)
             ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
                 extracted_json = EXCLUDED.extracted_json,
                 razao_social = EXCLUDED.razao_social,
                 cnpj = EXCLUDED.cnpj,
                 tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
+                tipo_documento = EXCLUDED.tipo_documento,
+                numeroMeses = EXCLUDED.numeroMeses,
                 moeda = EXCLUDED.moeda,
                 escala_valores = EXCLUDED.escala_valores,
                 atualizado_em = NOW(),
@@ -112,11 +159,13 @@ def _update_resultados_final(document_name: str, tipo_entidade: str, periodo: st
             {"name": "te",     "value": tipo_entidade},
             {"name": "per",    "value": periodo},
             {"name": "json",   "value": corrected_json},
-            {"name": "rs",     "value": str(row.get("razao_social") or "")},
-            {"name": "cnpj",   "value": str(row.get("cnpj") or "")},
-            {"name": "td",     "value": str(row.get("tipo_demonstrativo") or "")},
-            {"name": "moeda",  "value": str(row.get("moeda") or "")},
-            {"name": "escala", "value": str(row.get("escala_valores") or "")},
+            {"name": "rs",     "value": str(rs_val)},
+            {"name": "cnpj",   "value": str(cnpj_val)},
+            {"name": "td",     "value": td_val},
+            {"name": "tdoc",   "value": tdoc_val},
+            {"name": "nm",     "value": nm_val},
+            {"name": "moeda",  "value": str(moeda_val)},
+            {"name": "escala", "value": str(escala_val)},
             {"name": "user",   "value": user},
         ],
     )
@@ -147,44 +196,104 @@ def get_corrections(document_name: str):
     return {f"{r['campo']}__{r['tipo_entidade']}__{r['periodo']}": r for r in rows}
 
 
-@router.post("/corrections")
-def save_correction(c: Correction, request: Request):
-    te = c.tipo_entidade or ""
-    per = c.periodo or ""
-    user = _current_user(request)
-
-    # Upsert: delete existing for same (doc, campo, te, per) then insert
+def _insert_correction(c_doc: str, te: str, per: str, campo: str,
+                       valor_extraido: str, valor_correto: str, comentario: str,
+                       user: str, auto_confirm: bool):
+    """Upsert de uma correção. Quando auto_confirm=True, já entra como 'confirmado'."""
     execute_update(
         f"""DELETE FROM {CORRECTIONS_TABLE}
             WHERE document_name = :name AND campo = :campo
               AND COALESCE(tipo_entidade, '') = :te AND COALESCE(periodo, '') = :per""",
         [
-            {"name": "name",  "value": c.document_name},
-            {"name": "campo", "value": c.campo},
+            {"name": "name",  "value": c_doc},
+            {"name": "campo", "value": campo},
             {"name": "te",    "value": te},
             {"name": "per",   "value": per},
         ],
     )
-    execute_update(
-        f"""INSERT INTO {CORRECTIONS_TABLE}
-            (document_name, tipo_entidade, periodo, campo, valor_extraido, valor_correto,
-             comentario, status, criado_em)
-            VALUES (:name, :te, :per, :campo, :extraido, :correto, :comentario, 'pendente', CURRENT_TIMESTAMP())""",
-        [
-            {"name": "name",       "value": c.document_name},
-            {"name": "te",         "value": te},
-            {"name": "per",        "value": per},
-            {"name": "campo",      "value": c.campo},
-            {"name": "extraido",   "value": c.valor_extraido},
-            {"name": "correto",    "value": c.valor_correto},
-            {"name": "comentario", "value": c.comentario},
-        ],
+    if auto_confirm:
+        execute_update(
+            f"""INSERT INTO {CORRECTIONS_TABLE}
+                (document_name, tipo_entidade, periodo, campo, valor_extraido, valor_correto,
+                 comentario, status, criado_em, confirmado_em, confirmado_por)
+                VALUES (:name, :te, :per, :campo, :extraido, :correto, :comentario,
+                        'confirmado', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(), :por)""",
+            [
+                {"name": "name",       "value": c_doc},
+                {"name": "te",         "value": te},
+                {"name": "per",        "value": per},
+                {"name": "campo",      "value": campo},
+                {"name": "extraido",   "value": valor_extraido},
+                {"name": "correto",    "value": valor_correto},
+                {"name": "comentario", "value": comentario},
+                {"name": "por",        "value": user},
+            ],
+        )
+    else:
+        execute_update(
+            f"""INSERT INTO {CORRECTIONS_TABLE}
+                (document_name, tipo_entidade, periodo, campo, valor_extraido, valor_correto,
+                 comentario, status, criado_em)
+                VALUES (:name, :te, :per, :campo, :extraido, :correto, :comentario,
+                        'pendente', CURRENT_TIMESTAMP())""",
+            [
+                {"name": "name",       "value": c_doc},
+                {"name": "te",         "value": te},
+                {"name": "per",        "value": per},
+                {"name": "campo",      "value": campo},
+                {"name": "extraido",   "value": valor_extraido},
+                {"name": "correto",    "value": valor_correto},
+                {"name": "comentario", "value": comentario},
+            ],
+        )
+
+
+@router.post("/corrections")
+def save_correction(c: Correction, request: Request):
+    te = c.tipo_entidade or ""
+    per = c.periodo or ""
+    user = _current_user(request)
+    _raise_if_finalized(c.document_name, te, per)
+
+    _insert_correction(
+        c.document_name, te, per, c.campo,
+        c.valor_extraido, c.valor_correto, c.comentario,
+        user, c.auto_confirm,
     )
 
     # Update resultados_final with correction applied
     _update_resultados_final(c.document_name, te, per, user)
 
-    return {"status": "ok", "user": user}
+    return {"status": "ok", "user": user, "auto_confirm": c.auto_confirm}
+
+
+@router.post("/corrections/bulk")
+def save_bulk_corrections(payload: BulkCorrections, request: Request):
+    """Cria/atualiza várias correções de uma vez, todas marcadas como 'confirmado'.
+    Usado pelo botão 'Confirmar tudo' que marca campos LLM como Revisado sem alterar valor."""
+    te = payload.tipo_entidade or ""
+    per = payload.periodo or ""
+    user = _current_user(request)
+    _raise_if_finalized(payload.document_name, te, per)
+
+    saved = 0
+    for item in payload.items:
+        campo = item.get("campo") or ""
+        if not campo:
+            continue
+        _insert_correction(
+            payload.document_name, te, per, campo,
+            str(item.get("valor_extraido", "") or ""),
+            str(item.get("valor_correto", "") or ""),
+            str(item.get("comentario", "") or ""),
+            user, True,  # bulk = sempre auto_confirm
+        )
+        saved += 1
+
+    # Recalcula resultados_final UMA vez no final
+    _update_resultados_final(payload.document_name, te, per, user)
+
+    return {"status": "ok", "user": user, "count": saved}
 
 
 @router.post("/corrections/{document_name}/{campo}/confirm")
@@ -196,6 +305,7 @@ def confirm_correction(
     periodo: str = "",
 ):
     user = _current_user(request)
+    _raise_if_finalized(document_name, tipo_entidade, periodo)
     execute_update(
         f"""UPDATE {CORRECTIONS_TABLE}
             SET status = 'confirmado',
@@ -240,6 +350,7 @@ def delete_correction(
     tipo_entidade: str = "",
     periodo: str = "",
 ):
+    _raise_if_finalized(document_name, tipo_entidade, periodo)
     execute_update(
         f"""DELETE FROM {CORRECTIONS_TABLE}
             WHERE document_name = :name AND campo = :campo

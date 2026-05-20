@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from ..db import execute_sql, execute_update
-from ..config import RESULTS_TABLE, SOURCE_TABLE, CORRECTIONS_TABLE, PDF_VOLUME_PATH, get_client
+from ..config import RESULTS_TABLE, RESULTS_FINAL_TABLE, SOURCE_TABLE, CORRECTIONS_TABLE, PDF_VOLUME_PATH, get_client
 from .upload import _runs
 
 router = APIRouter()
@@ -40,12 +40,28 @@ def get_document(document_name: str):
         raise HTTPException(404, "Documento não encontrado")
 
     import json
+    # Buscar status de finalização por (tipo_entidade, periodo)
+    finals = execute_sql(
+        f"""SELECT COALESCE(tipo_entidade,'') AS tipo_entidade,
+                   COALESCE(periodo,'') AS periodo,
+                   COALESCE(status, 'em_revisao') AS status,
+                   CAST(finalizado_em AS STRING) AS finalizado_em,
+                   COALESCE(finalizado_por, '') AS finalizado_por
+            FROM {RESULTS_FINAL_TABLE}
+            WHERE document_name = :name""",
+        [{"name": "name", "value": document_name}],
+    )
+    finals_map = {(f["tipo_entidade"], f["periodo"]): f for f in finals}
+
     records = []
     for row in rows:
         raw = row["extracted_json"]
         data = json.loads(raw) if isinstance(raw, str) else raw
         raw_assessment = row.get("assessment_json")
         assessment = json.loads(raw_assessment) if isinstance(raw_assessment, str) and raw_assessment else []
+        te = row.get("tipo_entidade") or ""
+        per = row.get("periodo") or ""
+        f = finals_map.get((te, per), {})
         records.append({
             "tipo_entidade": row.get("tipo_entidade"),
             "periodo": row.get("periodo"),
@@ -54,11 +70,18 @@ def get_document(document_name: str):
             "processado_em": row.get("processado_em"),
             "modelo_versao": row.get("modelo_versao"),
             "modo_extracao": row.get("modo_extracao"),
+            "status": f.get("status", "em_revisao"),
+            "finalizado_em": f.get("finalizado_em") or "",
+            "finalizado_por": f.get("finalizado_por") or "",
         })
+
+    # Documento é considerado finalizado quando TODOS os registros estão finalizados
+    overall_status = "finalizado" if records and all(r["status"] == "finalizado" for r in records) else "em_revisao"
 
     return {
         "document_name": document_name,
         "records": records,
+        "status": overall_status,
         # backward-compat: expose first record's data at top level
         "data": records[0]["data"] if records else None,
     }

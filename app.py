@@ -5,13 +5,14 @@ from fastapi.responses import FileResponse
 
 app = FastAPI(title="TechFin OCR Review")
 
-from server.routes import documents, corrections, metrics, upload, export, admin
+from server.routes import documents, corrections, metrics, upload, export, admin, finalize
 app.include_router(documents.router, prefix="/api")
 app.include_router(corrections.router, prefix="/api")
 app.include_router(metrics.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(finalize.router, prefix="/api")
 
 # Serve React SPA
 _dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
