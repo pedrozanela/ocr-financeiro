@@ -78,10 +78,31 @@ Regras de classificação (sinalize se violadas):
 - Retorne APENAS o JSON array, sem texto adicional.\
 """
 
+# Regras absolutas — aplicadas antes de tudo, com precedência total
+REGRAS_ABSOLUTAS = """\
+## REGRAS ABSOLUTAS — APLICAR ANTES DE QUALQUER OUTRA REGRA
+
+### 1. Reclassificação obrigatória: AFAC fora do Patrimônio Líquido
+
+"Adiantamento para Futuro Aumento de Capital" (AFAC, Adto Futuro Aumento
+de Capital, ou variantes) NÃO é Patrimônio Líquido conceitualmente.
+Empresas frequentemente o classificam erradamente dentro do bloco
+PATRIMÔNIO LÍQUIDO no documento — você DEVE reclassificar.
+
+- AFAC dentro do bloco PATRIMÔNIO LÍQUIDO do documento → reclassifique
+  para `passivo_nao_circulante.conta_corrente_socios_coligadas_controladas`.
+  NUNCA deixe em reserva_de_capital, outras_reservas, ou qualquer campo do PL.
+
+- AFAC em outras seções (AC/ANC/PC/PNC) do documento → classifique no
+  cc_socios da seção correspondente, conforme o depara.
+"""
+
 # Template do system prompt — preenchido em runtime com artifacts separados
 SYSTEM_PROMPT = """\
 Você é um especialista em análise de demonstrações financeiras brasileiras.
 Sua tarefa é extrair informações estruturadas de documentos financeiros (Balanço Patrimonial e DRE).
+
+{regras_absolutas}
 
 {depara}
 
@@ -336,6 +357,7 @@ class TechFinExtractorAgent(PythonModel):
 
     def _system_prompt(self) -> str:
         return SYSTEM_PROMPT.format(
+            regras_absolutas=REGRAS_ABSOLUTAS,
             depara=self.depara_section,
             regras=self.regras_section,
             instructions=INSTRUCTIONS,
@@ -532,6 +554,59 @@ class TechFinExtractorAgent(PythonModel):
                 if abs(gap) < max(1.0, abs(total_val) * 0.01):
                     break
 
+        return result
+
+    def _postprocess_afac_in_pl(self, result):
+        """AFAC em Patrimônio Líquido é erro de classificação da empresa.
+        Move para passivo_nao_circulante.cc_socios. Em outros campos, não age."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        fontes = result.get("fontes", {}) or {}
+        AFAC_PATTERNS = [
+            'afac',
+            'adiantamento para futuro aumento',
+            'adto futuro aumento',
+            'adiantamento p futuro aumento',
+            'adiantamento para aumento de capital',
+        ]
+        target_path = "passivo_nao_circulante.conta_corrente_socios_coligadas_controladas"
+        target_grp, target_field = target_path.split(".")
+
+        for campo, fonte_text in list(fontes.items()):
+            if not isinstance(fonte_text, str):
+                continue
+            if not campo.startswith("patrimonio_liquido."):
+                continue
+            if not any(p in fonte_text.lower() for p in AFAC_PATTERNS):
+                continue
+            parts = campo.split(".")
+            obj = result
+            for p in parts[:-1]:
+                obj = obj.get(p, {}) if isinstance(obj, dict) else {}
+            if not isinstance(obj, dict):
+                continue
+            value = obj.get(parts[-1], 0) or 0
+            if abs(value) < 0.01:
+                continue
+            obj[parts[-1]] = 0
+            target_obj = result.setdefault(target_grp, {})
+            existing = target_obj.get(target_field, 0) or 0
+            target_obj[target_field] = round(existing + value, 2)
+            if target_path in result.get("fontes", {}):
+                result["fontes"][target_path] = f"{result['fontes'][target_path]} + {fonte_text}"
+            else:
+                result["fontes"][target_path] = fonte_text
+            result["fontes"].pop(campo, None)
+            postprocessed = result.setdefault("_postprocessed", [])
+            postprocessed.append({
+                "campo": campo, "original": value, "corrigido": 0,
+                "motivo": f"AFAC em PL detectado ('{fonte_text}'), reclassificado para PNC.cc_socios",
+            })
+            postprocessed.append({
+                "campo": target_path,
+                "original": existing, "corrigido": target_obj[target_field],
+                "motivo": f"AFAC recebido de {campo} (Regra Absoluta nº 1)",
+            })
         return result
 
     def _postprocess_reclassify(self, result):
@@ -993,6 +1068,7 @@ class TechFinExtractorAgent(PythonModel):
                 # Pós-processamento: corrige inconsistências aritméticas do LLM.
                 # (a) outros_* recalculado como resíduo do grupo (AC/ANC/PC/PNC)
                 # (b) DRE: total_despesas_operacionais = soma componentes; sinal IRPJ
+                parsed = [self._postprocess_afac_in_pl(r) for r in parsed]
                 parsed = [self._postprocess_reclassify(r) for r in parsed]
                 parsed = [self._postprocess_anti_duplicacao(r) for r in parsed]
                 parsed = [self._postprocess_outros(r) for r in parsed]
