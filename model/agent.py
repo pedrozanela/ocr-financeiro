@@ -115,6 +115,49 @@ ajustar a fonte registrada em vez do valor do campo.
 
 **Não use array com 1 item**: se há apenas uma fonte, registre como string. Arrays
 têm sempre 2+ itens.
+
+**Sinais — regras estritas para `operacao` e `nome`:**
+
+1. O `nome` registra o nome literal da linha do PDF **sem o sinal**. Se o documento
+   mostra "(-) DEVOLUÇÃO DE VENDAS", o `nome` é `"DEVOLUÇÃO DE VENDAS"` — NUNCA inclua
+   o "(-)" ou "-" no início do `nome`.
+
+2. O `valor` é SEMPRE positivo (módulo absoluto do valor extraído).
+
+3. A `operacao` carrega o sinal:
+   - `"-"` quando o item REDUZ o campo (devolução, abatimento, dedução, imposto sobre
+     receita, custo, despesa que reduz lucro, etc.)
+   - `"+"` quando o item SOMA ao campo (receita, ganho, recuperação, etc.)
+
+4. **Coerência com o sinal do campo**: se o valor do campo extraído é NEGATIVO (porque
+   o PDF mostra o item com sinal negativo, conforme Regra 22), a soma algébrica dos
+   itens em fontes também deve ser negativa. Isso quase sempre significa que os itens
+   têm `operacao: "-"`.
+
+   Exemplo correto (devoluções — campo NEGATIVO):
+   ```
+   "dre.vendas_anuladas": -1043125.00,
+   "fontes": {
+     "dre.vendas_anuladas": [
+       {"nome": "DEVOLUÇÃO DE VENDA DE PRODUTOS",   "valor": 529625.00, "operacao": "-"},
+       {"nome": "DEVOLUÇÃO DE VENDA DE MERCADORIAS","valor": 513500.00, "operacao": "-"}
+     ]
+   }
+   ```
+   Soma algébrica: -529625 + -513500 = -1043125 ✓ (bate com o campo)
+
+   ERRADO (sinal embutido no nome, operacao positiva):
+   ```
+   "fontes": [
+     {"nome": "(-) DEVOLUÇÃO ...", "valor": 529625, "operacao": "+"}  ← INCORRETO
+   ]
+   ```
+   Soma algébrica daria +1043125, divergindo do campo (-1043125).
+
+5. **Linhas de TOTAL não são itens**: "TOTAL DEDUÇÕES", "TOTAL CUSTOS", "TOTAL
+   DESPESAS OPERACIONAIS" são SUMÁRIOS calculados pelo PDF — NÃO os registre como
+   item de fonte e NÃO os extraia para um campo separado quando você já registrou os
+   itens individuais que os compõem. Se há detalhamento, ignore a linha de total.
 """
 
 # Regras absolutas — aplicadas antes de tudo, com precedência total
@@ -753,17 +796,37 @@ class TechFinExtractorAgent(PythonModel):
                 old_val = from_obj.get(from_parts[-1], 0)
                 from_obj[from_parts[-1]] = 0
 
-            # Add to target
+            # Resolve target (do NOT mutate yet — needs to inspect existing value)
             to_parts = to_path.split(".")
             to_obj = result
             for p in to_parts[:-1]:
                 if p not in to_obj:
                     to_obj[p] = {}
                 to_obj = to_obj[p]
-            if isinstance(to_obj, dict):
-                existing = to_obj.get(to_parts[-1], 0) or 0
-                to_obj[to_parts[-1]] = round(existing + value, 2)
+            if not isinstance(to_obj, dict):
+                continue
 
+            existing = to_obj.get(to_parts[-1], 0) or 0
+            # Anti-dupla-contagem: se o destino ja tem valor nao-zero, o LLM ja
+            # extraiu detalhadamente (provavelmente via fontes em array). O item
+            # de origem e um TOTAL agregado redundante (ex: linha "DEDUCOES" que
+            # ja foi composta pelos 6 impostos individuais). Zera origem mas
+            # NAO soma no destino.
+            destino_ja_tem_valor = abs(existing) > 0.01
+            if destino_ja_tem_valor:
+                postprocessed.append({
+                    "campo": from_path,
+                    "original": old_val,
+                    "corrigido": 0,
+                    "motivo": (
+                        f"Zerado (provavel total agregado da secao '{fonte_text}'); "
+                        f"{to_path} ja tem valor {existing} extraido dos itens individuais"
+                    ),
+                })
+                continue
+
+            # Destino vazio — comportamento original: mover o valor para o destino
+            to_obj[to_parts[-1]] = round(existing + value, 2)
             postprocessed.append({
                 "campo": from_path,
                 "original": old_val,
