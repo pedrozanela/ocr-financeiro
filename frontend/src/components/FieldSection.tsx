@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { SectionDef, FieldDef } from './fieldDefinitions'
 import { AssessmentItem } from './FinancialReview'
 import {
   IconSparkles, IconUserCheck, IconPencil, IconArrowBackUp,
   IconAlertCircle, IconEye, IconEyeOff, IconDownload, IconCheck, IconX,
-  IconChevronRight,
+  IconChevronRight, IconInfoCircle,
 } from '@tabler/icons-react'
 
 // ─── Constants / helpers ─────────────────────────────────────────────────────
@@ -587,6 +588,7 @@ function FieldRowNormal(props: RowCommon) {
               <span className={`font-mono text-sm tabular-nums truncate ${isReviewed ? 'font-medium text-gray-900' : 'text-gray-800'} ${isTotal ? 'font-semibold' : ''}`}>
                 {effectiveFormatted || <span className="text-gray-300">—</span>}
               </span>
+              {props.fonte && <SourceTooltip fonte={props.fonte} />}
               {!readOnly && !dimmed && (
                 <IconPencil
                   size={13}
@@ -776,7 +778,8 @@ function FieldRowAudit(props: RowCommon) {
       <span className={`font-mono text-sm tabular-nums ${isReviewed ? 'font-medium text-gray-900' : 'text-gray-800'}`}>
         {finalFormatted || '—'}
       </span>
-      <div className="text-[11px] shrink-0 min-w-[80px] text-right">
+      <div className="text-[11px] shrink-0 min-w-[80px] text-right inline-flex items-center justify-end gap-1.5">
+        {props.fonte && <SourceTooltip fonte={props.fonte} />}
         {diverges ? (
           <span className="inline-flex items-center gap-1 text-blue-600">
             <IconPencil size={11} /> {delta >= 0 ? '+' : ''}{brl.format(delta)}
@@ -788,3 +791,76 @@ function FieldRowAudit(props: RowCommon) {
     </div>
   )
 }
+
+// ─── SourceTooltip ────────────────────────────────────────────────────────────
+// "i" icon with hover tooltip showing the PDF source text used by the LLM.
+// Renders via portal to escape parent overflow:hidden. Position fixed with flip.
+
+function SourceTooltip({ fonte }: { fonte: string }) {
+  const [pos, setPos] = useState<{ x: number; y: number; flip: boolean } | null>(null)
+  const iconRef = useRef<HTMLSpanElement>(null)
+  const timer = useRef<number | null>(null)
+
+  function show() {
+    timer.current = window.setTimeout(() => {
+      if (!iconRef.current) return
+      const r = iconRef.current.getBoundingClientRect()
+      const flip = r.right + 290 + 16 > window.innerWidth
+      setPos({
+        x: flip ? r.left - 8 : r.right + 8,
+        y: r.top + r.height / 2,
+        flip,
+      })
+    }, 300)
+  }
+  function hide() {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+    setPos(null)
+  }
+
+  const items = fonte.includes(' + ')
+    ? fonte.split(' + ').map(s => s.trim()).filter(Boolean)
+    : null
+
+  return (
+    <>
+      <span
+        ref={iconRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        className="inline-flex items-center text-gray-400 hover:text-gray-600 cursor-help shrink-0"
+      >
+        <IconInfoCircle size={13} />
+      </span>
+      {pos &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: pos.y,
+              left: pos.x,
+              transform: `translate(${pos.flip ? '-100%' : '0'}, -50%)`,
+              zIndex: 100,
+            }}
+            className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2.5 shadow-md max-w-[280px] pointer-events-none"
+          >
+            <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">
+              Fonte do PDF
+            </div>
+            {items ? (
+              <ul className="text-xs text-gray-700 list-disc pl-4 space-y-0.5">
+                {items.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            ) : (
+              <div className="text-xs text-gray-700">{fonte}</div>
+            )}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
