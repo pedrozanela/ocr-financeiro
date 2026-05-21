@@ -24,3 +24,8 @@ frontend/.vite/
 # Secrets / credentials
 .databrickscfg
 *.token
+
+# Dirs de testes manuais (não vão ao repo)
+pzanela-app-teste/
+pzanela-app-teste-v2/
+.claude/
