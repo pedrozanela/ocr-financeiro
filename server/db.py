@@ -117,18 +117,20 @@ def execute_sql(statement: str, parameters: list | None = None, **_kwargs) -> li
     [{"name": "foo", "value": "bar"}, ...] → converted to %(foo)s style.
     """
     conn = get_connection()
-    # Convert Databricks-style named params to psycopg2 %(name)s style
+    import re
+    # Convert Databricks-style named params to psycopg2 %(name)s style.
+    # Use regex com word boundary para nao substituir prefixo (ex: :te dentro de :te_err).
     pg_params = {}
     pg_statement = statement
     if parameters:
         for p in parameters:
             pg_params[p["name"]] = p["value"]
-        # Replace :name with %(name)s
-        for p in parameters:
-            pg_statement = pg_statement.replace(f":{p['name']}", f"%({p['name']})s")
+        # Ordenar por nome decrescente em comprimento ajuda também
+        for p in sorted(parameters, key=lambda x: -len(x["name"])):
+            pattern = re.compile(r':' + re.escape(p["name"]) + r'(?![A-Za-z0-9_])')
+            pg_statement = pattern.sub(f"%({p['name']})s", pg_statement)
 
     # Replace Databricks SQL functions with PostgreSQL equivalents
-    import re
     pg_statement = pg_statement.replace("CURRENT_TIMESTAMP()", "NOW()")
     # CAST(expr AS STRING) → (expr)::text  (handles any expression inside)
     pg_statement = re.sub(r'CAST\((.+?) AS STRING\)', r'(\1)::text', pg_statement)

@@ -222,20 +222,41 @@ CREATE TABLE IF NOT EXISTS resultados (
     PRIMARY KEY (document_name, tipo_entidade, periodo)
 );
 
-CREATE TABLE IF NOT EXISTS correcoes (
+-- Estado transitorio da revisao em andamento (UI le e escreve, limpa no Submeter)
+CREATE TABLE IF NOT EXISTS revisoes_em_andamento (
     document_name TEXT NOT NULL,
     campo TEXT NOT NULL,
     tipo_entidade TEXT NOT NULL DEFAULT '',
     periodo TEXT NOT NULL DEFAULT '',
-    valor_extraido TEXT,
-    valor_correto TEXT,
-    comentario TEXT,
-    status TEXT DEFAULT 'pendente',
+    valor_extraido NUMERIC,
+    valor_corrente NUMERIC,
+    status TEXT NOT NULL DEFAULT 'llm',  -- 'llm' | 'corrigido' | 'confirmado'
+    tipo_erro TEXT,
+    tipo_erro_detalhe TEXT,
+    revisado_por TEXT,
+    revisado_em TIMESTAMPTZ,
     criado_em TIMESTAMPTZ DEFAULT NOW(),
-    confirmado_em TIMESTAMPTZ,
-    confirmado_por TEXT,
-    resolvido_em TIMESTAMPTZ,
     PRIMARY KEY (document_name, campo, tipo_entidade, periodo)
+);
+
+-- Audit log append-only (snapshot no Submeter; fonte para retreino/avaliacao)
+CREATE TABLE IF NOT EXISTS feedback_llm (
+    id BIGSERIAL PRIMARY KEY,
+    document_name TEXT NOT NULL,
+    campo TEXT NOT NULL,
+    tipo_entidade TEXT NOT NULL DEFAULT '',
+    periodo TEXT NOT NULL DEFAULT '',
+    valor_llm NUMERIC,
+    valor_final NUMERIC,
+    acao TEXT NOT NULL,                   -- 'corrigido' | 'confirmado'
+    tipo_erro TEXT,
+    tipo_erro_detalhe TEXT,
+    fonte_llm JSONB,
+    revisado_por TEXT NOT NULL,
+    revisado_em TIMESTAMPTZ NOT NULL,
+    submetido_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    modelo_versao TEXT,
+    prompt_versao TEXT
 );
 
 CREATE TABLE IF NOT EXISTS resultados_final (
@@ -253,14 +274,20 @@ CREATE TABLE IF NOT EXISTS resultados_final (
     atualizado_em TIMESTAMPTZ DEFAULT NOW(),
     atualizado_por TEXT,
     status TEXT DEFAULT 'em_revisao',
+    techfin_response JSONB,
     finalizado_em TIMESTAMPTZ,
     finalizado_por TEXT,
     PRIMARY KEY (document_name, tipo_entidade, periodo)
 );
 
 CREATE INDEX IF NOT EXISTS idx_resultados_doc ON resultados (document_name);
-CREATE INDEX IF NOT EXISTS idx_correcoes_doc ON correcoes (document_name);
-CREATE INDEX IF NOT EXISTS idx_correcoes_status ON correcoes (status);
+CREATE INDEX IF NOT EXISTS idx_revisoes_doc ON revisoes_em_andamento (document_name);
+CREATE INDEX IF NOT EXISTS idx_revisoes_status ON revisoes_em_andamento (status);
+CREATE INDEX IF NOT EXISTS idx_feedback_doc ON feedback_llm (document_name);
+CREATE INDEX IF NOT EXISTS idx_feedback_campo ON feedback_llm (campo);
+CREATE INDEX IF NOT EXISTS idx_feedback_tipo_erro ON feedback_llm (tipo_erro) WHERE tipo_erro IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_feedback_submetido ON feedback_llm (submetido_em);
+CREATE INDEX IF NOT EXISTS idx_feedback_modelo ON feedback_llm (modelo_versao);
 CREATE INDEX IF NOT EXISTS idx_resultados_final_doc ON resultados_final (document_name);
 """
 
@@ -299,6 +326,7 @@ for tbl in ("resultados", "resultados_final"):
 cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'em_revisao'")
 cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS finalizado_em TIMESTAMPTZ")
 cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS finalizado_por TEXT")
+cur.execute("ALTER TABLE resultados_final ADD COLUMN IF NOT EXISTS techfin_response JSONB")
 # Preencher status default em linhas legadas (criadas antes do default)
 cur.execute("UPDATE resultados_final SET status = 'em_revisao' WHERE status IS NULL")
 print("✓ Migrations aplicadas")
@@ -346,6 +374,9 @@ else:
     cur.execute(f'GRANT ALL ON SCHEMA public TO {sp_quoted}')
     cur.execute(f'GRANT ALL ON ALL TABLES IN SCHEMA public TO {sp_quoted}')
     cur.execute(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {sp_quoted}')
+    # BIGSERIAL columns (feedback_llm.id) precisam de privilégio na sequence
+    cur.execute(f'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {sp_quoted}')
+    cur.execute(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {sp_quoted}')
 
     print(f"✓ Permissões SQL concedidas ao SP {SP_CLIENT_ID}")
     conn.close()

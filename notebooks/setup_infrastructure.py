@@ -108,7 +108,7 @@ print("Tabela resultados OK")
 # COMMAND ----------
 
 spark.sql(f"""
-    CREATE TABLE IF NOT EXISTS {catalog}.{schema}.correcoes (
+    CREATE TABLE IF NOT EXISTS {catalog}.{schema}.correcoes_legado (
         document_name STRING,
         campo STRING,
         valor_extraido STRING,
@@ -119,10 +119,53 @@ spark.sql(f"""
         periodo STRING,
         status STRING,
         confirmado_em TIMESTAMP,
-        confirmado_por STRING
+        confirmado_por STRING,
+        resolvido_em TIMESTAMP
     ) USING DELTA
 """)
-print("Tabela correcoes OK")
+print("Tabela correcoes_legado OK")
+
+# Revisoes em andamento — estado transitorio do workflow de revisao
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {catalog}.{schema}.revisoes_em_andamento (
+        document_name STRING NOT NULL,
+        campo STRING NOT NULL,
+        tipo_entidade STRING NOT NULL,
+        periodo STRING NOT NULL,
+        valor_extraido DOUBLE,
+        valor_corrente DOUBLE,
+        status STRING NOT NULL,
+        tipo_erro STRING,
+        tipo_erro_detalhe STRING,
+        revisado_por STRING,
+        revisado_em TIMESTAMP,
+        criado_em TIMESTAMP
+    ) USING DELTA
+""")
+print("Tabela revisoes_em_andamento OK")
+
+# Feedback LLM — audit log append-only (snapshot no Submeter)
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {catalog}.{schema}.feedback_llm (
+        id BIGINT,
+        document_name STRING NOT NULL,
+        campo STRING NOT NULL,
+        tipo_entidade STRING NOT NULL,
+        periodo STRING NOT NULL,
+        valor_llm DOUBLE,
+        valor_final DOUBLE,
+        acao STRING NOT NULL,
+        tipo_erro STRING,
+        tipo_erro_detalhe STRING,
+        fonte_llm STRING,
+        revisado_por STRING NOT NULL,
+        revisado_em TIMESTAMP NOT NULL,
+        submetido_em TIMESTAMP NOT NULL,
+        modelo_versao STRING,
+        prompt_versao STRING
+    ) USING DELTA
+""")
+print("Tabela feedback_llm OK")
 
 # COMMAND ----------
 
@@ -158,6 +201,7 @@ for col_ddl in [
     "status STRING",
     "finalizado_em TIMESTAMP",
     "finalizado_por STRING",
+    "techfin_response STRING",
 ]:
     try:
         spark.sql(f"ALTER TABLE {catalog}.{schema}.resultados_final ADD COLUMN ({col_ddl})")
@@ -239,7 +283,9 @@ Infraestrutura criada:
   Tabelas: {catalog}.{schema}.documentos
            {catalog}.{schema}.resultados
            {catalog}.{schema}.resultados_final
-           {catalog}.{schema}.correcoes
+           {catalog}.{schema}.revisoes_em_andamento
+           {catalog}.{schema}.feedback_llm
+           {catalog}.{schema}.correcoes_legado
   Volume:  /Volumes/{catalog}/{schema}/documentos_pdf
   Permissoes SP: {'concedidas' if sp else 'nao concedidas (sp_client_id vazio)'}
 """)
