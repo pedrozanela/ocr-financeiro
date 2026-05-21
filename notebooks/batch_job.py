@@ -2,7 +2,8 @@
 # MAGIC %md
 # MAGIC # TechFin OCR — Batch Job
 # MAGIC Detecta PDFs novos no volume UC, extrai texto via `ai_parse_document`,
-# MAGIC chama o endpoint OCR e salva em `resultados` + sincroniza `resultados_final`.
+# MAGIC chama o endpoint OCR e salva em `resultados`. A tabela `resultados_final`
+# MAGIC NAO e gravada por este job — apenas pelo botao "Submeter" no app.
 
 # COMMAND ----------
 
@@ -146,37 +147,6 @@ def pg_upsert_documento(doc, text):
                 atualizado_por = EXCLUDED.atualizado_por
         """, (doc, text, CURRENT_USER))
 
-
-def pg_sync_final(doc_names):
-    """Sync resultados_final from resultados for given documents."""
-    conn = _get_pg()
-    if not conn:
-        return
-    with conn.cursor() as cur:
-        for doc in doc_names:
-            cur.execute("""
-                INSERT INTO resultados_final
-                    (document_name, tipo_entidade, periodo, extracted_json,
-                     razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
-                     moeda, escala_valores,
-                     atualizado_em, atualizado_por)
-                SELECT document_name, tipo_entidade, periodo, extracted_json,
-                       razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
-                       moeda, escala_valores,
-                       NOW(), %s
-                FROM resultados WHERE document_name = %s
-                ON CONFLICT (document_name, tipo_entidade, periodo) DO UPDATE SET
-                    extracted_json = EXCLUDED.extracted_json,
-                    razao_social = EXCLUDED.razao_social,
-                    cnpj = EXCLUDED.cnpj,
-                    tipo_demonstrativo = EXCLUDED.tipo_demonstrativo,
-                    tipo_documento = EXCLUDED.tipo_documento,
-                    numeroMeses = EXCLUDED.numeroMeses,
-                    moeda = EXCLUDED.moeda,
-                    escala_valores = EXCLUDED.escala_valores,
-                    atualizado_em = NOW(),
-                    atualizado_por = EXCLUDED.atualizado_por
-            """, (f"job:{CURRENT_USER}", doc))
 
 # COMMAND ----------
 # MAGIC %md ## 1. Identificar PDFs novos
@@ -607,48 +577,12 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
 total_elapsed = time.time() - total_start
 
 # COMMAND ----------
-# MAGIC %md ## 4. Sincronizar resultados_final
-
-# COMMAND ----------
-
-if successes:
-    in_clause = ", ".join(f"'{n.replace(chr(39), chr(39)+chr(39))}'" for n in successes)
-    spark.sql(f"""
-        MERGE INTO {FINAL_TABLE} AS t
-        USING (
-            SELECT document_name, tipo_entidade, periodo, extracted_json,
-                   razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
-                   moeda, escala_valores
-            FROM {RESULTS_TABLE}
-            WHERE document_name IN ({in_clause})
-        ) AS s
-        ON  t.document_name = s.document_name
-        AND COALESCE(t.tipo_entidade, '') = COALESCE(s.tipo_entidade, '')
-        AND COALESCE(t.periodo, '')       = COALESCE(s.periodo, '')
-        WHEN MATCHED AND COALESCE(t.atualizado_por, '') LIKE 'job:%' OR t.atualizado_por IS NULL THEN UPDATE SET
-            extracted_json     = s.extracted_json,
-            razao_social       = s.razao_social,
-            cnpj               = s.cnpj,
-            tipo_demonstrativo = s.tipo_demonstrativo,
-            tipo_documento     = s.tipo_documento,
-            numeroMeses        = s.numeroMeses,
-            moeda              = s.moeda,
-            escala_valores     = s.escala_valores,
-            atualizado_em      = CURRENT_TIMESTAMP(),
-            atualizado_por     = 'job:{CURRENT_USER}'
-        WHEN NOT MATCHED THEN INSERT
-            (document_name, tipo_entidade, periodo, extracted_json,
-             razao_social, cnpj, tipo_demonstrativo, tipo_documento, numeroMeses,
-             moeda, escala_valores,
-             atualizado_em, atualizado_por)
-        VALUES
-            (s.document_name, s.tipo_entidade, s.periodo, s.extracted_json,
-             s.razao_social, s.cnpj, s.tipo_demonstrativo, s.tipo_documento, s.numeroMeses,
-             s.moeda, s.escala_valores,
-             CURRENT_TIMESTAMP(), 'job:{CURRENT_USER}')
-    """)
-    pg_sync_final(successes)
-    print(f"✓ resultados_final sincronizado para {len(successes)} documento(s)")
+# MAGIC %md ## 4. resultados_final
+# MAGIC
+# MAGIC Tabela `resultados_final` NAO e gravada por este job. Ela e populada apenas
+# MAGIC quando o usuario clica em "Submeter" no app (POST /api/finalize/{doc}).
+# MAGIC Reprocessamento de um doc finalizado tambem apaga a linha em resultados_final
+# MAGIC (POST /reprocess), reiniciando o ciclo de revisao.
 
 # COMMAND ----------
 # MAGIC %md ## 5. Relatório

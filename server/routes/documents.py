@@ -98,6 +98,12 @@ def reprocess_document(document_name: str):
             f"DELETE FROM {RESULTS_TABLE} WHERE document_name = :name",
             [{"name": "name", "value": document_name}],
         )
+        # Tambem remove de resultados_final — reprocessamento reinicia o ciclo de
+        # revisao do zero (permitido mesmo se o doc estava 'finalizado').
+        execute_update(
+            f"DELETE FROM {RESULTS_FINAL_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
         job_id = _get_batch_job_id(client)
         # Passa pdf_name para processar APENAS este documento (modo single)
         run = client.jobs.run_now(job_id=job_id, notebook_params={"pdf_name": document_name})

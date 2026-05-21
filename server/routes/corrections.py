@@ -123,7 +123,11 @@ def _update_resultados_final(document_name: str, tipo_entidade: str, periodo: st
             except (ValueError, TypeError):
                 obj[parts[-1]] = valor
 
-    corrected_json = json.dumps(data, ensure_ascii=False)
+    # resultados_final guarda apenas a estrutura financeira "limpa" — sem fontes
+    # (racional do LLM) nem _postprocessed (metadados de pos-processamento).
+    # Isso vira o JSON oficial para consumo downstream.
+    clean = {k: v for k, v in data.items() if k not in ("fontes", "_postprocessed")}
+    corrected_json = json.dumps(clean, ensure_ascii=False)
 
     # Preferir os valores corrigidos do JSON (incluem correções de enums via UI)
     # Identificação fica em data["identificacao"] no JSON
@@ -261,9 +265,8 @@ def save_correction(c: Correction, request: Request):
         user, c.auto_confirm,
     )
 
-    # Update resultados_final with correction applied
-    _update_resultados_final(c.document_name, te, per, user)
-
+    # NOTA: resultados_final NAO e atualizado aqui. Consolidacao acontece
+    # apenas no POST /api/finalize/{doc} (botao Submeter).
     return {"status": "ok", "user": user, "auto_confirm": c.auto_confirm}
 
 
@@ -290,9 +293,7 @@ def save_bulk_corrections(payload: BulkCorrections, request: Request):
         )
         saved += 1
 
-    # Recalcula resultados_final UMA vez no final
-    _update_resultados_final(payload.document_name, te, per, user)
-
+    # NOTA: resultados_final NAO e atualizado aqui — apenas no Submeter.
     return {"status": "ok", "user": user, "count": saved}
 
 
@@ -350,6 +351,7 @@ def delete_correction(
     tipo_entidade: str = "",
     periodo: str = "",
 ):
+    _ = request  # mantido na assinatura (FastAPI) — sem uso de auditoria aqui
     _raise_if_finalized(document_name, tipo_entidade, periodo)
     execute_update(
         f"""DELETE FROM {CORRECTIONS_TABLE}
@@ -362,7 +364,5 @@ def delete_correction(
             {"name": "per",   "value": periodo},
         ],
     )
-    # Rebuild resultados_final without this correction
-    user = _current_user(request)
-    _update_resultados_final(document_name, tipo_entidade or "", periodo or "", user)
+    # NOTA: resultados_final NAO e atualizado aqui — apenas no Submeter.
     return {"status": "ok"}
