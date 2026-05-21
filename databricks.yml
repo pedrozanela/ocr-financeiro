@@ -97,11 +97,19 @@ resources:
           notebook_task:
             notebook_path: ./notebooks/setup_secret_scope.py
             base_parameters:
+              # Scope do PAT do projeto (extrator-financeiro chama outros endpoints)
               secret_scope: ${var.secret_scope}
               secret_key:   ${var.secret_key}
               app_sp_id:    ${var.app_sp_id}
               pat_comment:  "techfin-ocr-pat"
               pat_lifetime_days: "365"
+              # Scope techfin (credenciais OAuth da PARC) — passar via --params no bundle run:
+              #   --params parc_client_id=...,parc_client_secret=...,parc_oauth_user=...,parc_oauth_password=...
+              techfin_scope_name:  "techfin"
+              parc_client_id:      ""
+              parc_client_secret:  ""
+              parc_oauth_user:     ""
+              parc_oauth_password: ""
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED
@@ -141,27 +149,6 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               migrate_data: "true"
-            source: WORKSPACE
-          environment_key: default
-      performance_target: PERFORMANCE_OPTIMIZED
-      environments:
-        - environment_key: default
-          spec:
-            client: "5"
-
-    setup_techfin_secrets:
-      name: "ocr-financeiro-setup-techfin-secrets"
-      tasks:
-        - task_key: setup
-          notebook_task:
-            notebook_path: ./notebooks/setup_techfin_secrets.py
-            base_parameters:
-              parc_client_id: ""        # passar via --params no bundle run
-              parc_client_secret: ""
-              parc_oauth_user: ""
-              parc_oauth_password: ""
-              app_sp_id: ${var.app_sp_id}
-              scope_name: "techfin"
             source: WORKSPACE
           environment_key: default
       performance_target: PERFORMANCE_OPTIMIZED

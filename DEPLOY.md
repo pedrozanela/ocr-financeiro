@@ -33,16 +33,18 @@ targets:
       lakebase_db:   ocr_financeiro
 ```
 
-### 2. Criar secret scope `techfin` (via bundle job)
+### 2. Criar secrets via bundle job
 
-Use o job `setup_techfin_secrets` que cria scope, grava as 4 credenciais e concede ACL ao SP. As credenciais ficam fora do git (passam como parâmetros).
+O job `setup_secret_scope` cuida de **dois** scopes em uma única execução:
+- `techfin-ocr` (configurável): PAT do projeto para o endpoint chamar outros endpoints
+- `techfin` (opcional): 4 credenciais OAuth da PARC, só configurado se você passar como params
 
 ```bash
-databricks bundle run setup_techfin_secrets --target <target-do-cliente> \
+databricks bundle run setup_secret_scope --target <target-do-cliente> \
   --params parc_client_id=<id>,parc_client_secret=<secret>,parc_oauth_user=<user>,parc_oauth_password=<pass>
 ```
 
-> **Importante**: na primeira execução o SP da app ainda não existe — o ACL será pulado. Após o passo 7 (deploy da app), atualize `${var.app_sp_id}` no `databricks.yml` com o SP real e rode o job novamente (idempotente — só atualiza o ACL).
+> **Importante**: na primeira execução o SP da app ainda não existe — o ACL será pulado. Após o passo 7 (deploy da app), atualize `${var.app_sp_id}` no `databricks.yml` com o SP real e rode o job novamente (idempotente — só atualiza ACLs).
 
 Alternativa manual via CLI (se preferir):
 ```bash
