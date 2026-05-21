@@ -95,30 +95,26 @@ def reprocess_preview(document_name: str):
 
     - preservados: campos com status != 'llm' (corrigido + confirmado) -> mantidos
     - podem_mudar: total de campos extraidos - preservados -> podem ter valor diferente
-    - total_campos: total de campos numericos no extracted_json mais recente
+    - total_campos: total de campos numericos no extracted_json (somando todos os records)
     """
     import json
+
+    # Contagem de preservados em revisoes
+    pres_rows = execute_sql(
+        f"SELECT COUNT(*) AS n FROM {REVISOES_TABLE} WHERE document_name = :name AND status != 'llm'",
+        [{"name": "name", "value": document_name}],
+    )
+    preservados = int(pres_rows[0]["n"]) if pres_rows else 0
+
+    # Soma campos numericos de todos os records (cada par tipo_entidade/periodo)
     rows = execute_sql(
-        f"""SELECT
-              (SELECT COUNT(*) FROM {REVISOES_TABLE}
-                WHERE document_name = :name AND status != 'llm') AS preservados,
-              (SELECT MAX(extracted_json) FROM {RESULTS_TABLE}
-                WHERE document_name = :name) AS extracted_json
-        """,
+        f"SELECT extracted_json FROM {RESULTS_TABLE} WHERE document_name = :name",
         [{"name": "name", "value": document_name}],
     )
     if not rows:
         raise HTTPException(404, "Documento nao encontrado")
-    row = rows[0]
-    preservados = int(row.get("preservados") or 0)
-    raw = row.get("extracted_json")
-    try:
-        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
-    except Exception:
-        data = {}
 
-    # Conta campos numericos no JSON (recursivo, ignora identificacao/fontes/_postprocessed)
-    def count_numeric_fields(obj, prefix=''):
+    def count_numeric_fields(obj):
         n = 0
         if not isinstance(obj, dict):
             return 0
@@ -126,13 +122,21 @@ def reprocess_preview(document_name: str):
             if k in ('fontes', '_postprocessed', 'identificacao'):
                 continue
             if isinstance(v, dict):
-                n += count_numeric_fields(v, f"{prefix}{k}.")
+                n += count_numeric_fields(v)
             elif isinstance(v, (int, float)):
                 n += 1
         return n
-    total_campos = count_numeric_fields(data)
-    podem_mudar = max(0, total_campos - preservados)
 
+    total_campos = 0
+    for r in rows:
+        raw = r.get("extracted_json")
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except Exception:
+            continue
+        total_campos += count_numeric_fields(data)
+
+    podem_mudar = max(0, total_campos - preservados)
     return {
         "document_name": document_name,
         "total_campos": total_campos,
