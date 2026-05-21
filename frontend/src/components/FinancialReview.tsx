@@ -326,21 +326,15 @@ export default function FinancialReview({ documentName }: Props) {
   const llmPuroCount = reviewableFields.filter(f => !recordCorrections[f.path]).length
   const canSubmit = llmPuroCount === 0
 
-  // Per-section correction counts for badges
-  const sectionCounts = SECTIONS.map(s => {
-    const paths = new Set(s.fields.map(f => f.path))
-    return Object.keys(recordCorrections).filter(k => paths.has(k)).length
-  })
-
   const OCR_TAB    = SECTIONS.length
   const PONTOS_TAB = SECTIONS.length + 1
   const REGRAS_TAB = SECTIONS.length + 2
 
   const tabs = [
-    ...SECTIONS.map((s, i) => ({ label: s.label, count: sectionCounts[i] })),
-    { label: 'Texto OCR', count: 0 },
-    { label: 'Pontos de Atenção', count: 0 },
-    { label: 'Regras', count: 0 },
+    ...SECTIONS.map(s => ({ label: s.label })),
+    { label: 'Texto OCR' },
+    { label: 'Pontos de Atenção' },
+    { label: 'Regras' },
   ]
 
   const pdfUrl   = `/api/documents/${encodeURIComponent(documentName)}/pdf`
@@ -549,13 +543,6 @@ export default function FinancialReview({ documentName }: Props) {
                     </svg>
                   )}
                   {tab.label}
-                  {tab.count > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-tight ${
-                      isActive ? 'bg-[#0F2137] text-white' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      {tab.count}
-                    </span>
-                  )}
                 </button>
               )
             })}
