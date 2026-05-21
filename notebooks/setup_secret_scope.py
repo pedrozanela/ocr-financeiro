@@ -36,7 +36,7 @@ dbutils.widgets.text("pat_comment",  "techfin-ocr-pat", "Comentário do PAT cria
 dbutils.widgets.text("pat_lifetime_days", "365",    "Validade do PAT em dias (0 = nunca expira)")
 
 # Credenciais Techfin/PARC (opcionais — só cria scope se as 4 vierem preenchidas)
-dbutils.widgets.text("techfin_scope_name",     "techfin", "Nome do scope Techfin")
+dbutils.widgets.text("techfin_scope_name",     "techfin-ocr", "Nome do scope Techfin")
 dbutils.widgets.text("parc_client_id",         "",        "PARC client_id (Techfin)")
 dbutils.widgets.text("parc_client_secret",     "",        "PARC client_secret (Techfin)")
 dbutils.widgets.text("parc_oauth_user",        "",        "PARC OAuth user (Techfin)")

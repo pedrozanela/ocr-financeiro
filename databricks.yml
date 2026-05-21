@@ -105,7 +105,7 @@ resources:
               pat_lifetime_days: "365"
               # Scope techfin (credenciais OAuth da PARC) — passar via --params no bundle run:
               #   --params parc_client_id=...,parc_client_secret=...,parc_oauth_user=...,parc_oauth_password=...
-              techfin_scope_name:  "techfin"
+              techfin_scope_name:  "techfin-ocr"
               parc_client_id:      ""
               parc_client_secret:  ""
               parc_oauth_user:     ""

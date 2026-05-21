@@ -24,7 +24,8 @@ logger = logging.getLogger("techfin")
 class TechfinClient:
     OAUTH_URL = "https://parc.supplierapi.com.br/oauth2/access-token"
     BALANCO_URL = "https://parc.supplierapi.com.br/databricks/v1/balanco"
-    SCOPE = "techfin"
+    # Scope configuravel via env TECHFIN_SECRET_SCOPE (default: 'techfin-ocr')
+    SCOPE = os.environ.get("TECHFIN_SECRET_SCOPE", "techfin-ocr")
     KEYS = ("parc_client_id", "parc_client_secret", "parc_oauth_user", "parc_oauth_password")
     TOKEN_REFRESH_MARGIN = 60  # renova 60s antes de expirar
 
