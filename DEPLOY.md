@@ -33,20 +33,24 @@ targets:
       lakebase_db:   ocr_financeiro
 ```
 
-### 2. Criar secret scope `techfin` + ACL
+### 2. Criar secret scope `techfin` (via bundle job)
+
+Use o job `setup_techfin_secrets` que cria scope, grava as 4 credenciais e concede ACL ao SP. As credenciais ficam fora do git (passam como parâmetros).
 
 ```bash
-SP=<service_principal_client_id_da_app>  # depois do deploy do bundle, sair de `databricks apps get`
-
-databricks secrets create-scope techfin --profile $DATABRICKS_PROFILE
-echo -n "<parc_client_id>"     | databricks secrets put-secret techfin parc_client_id     --profile $DATABRICKS_PROFILE
-echo -n "<parc_client_secret>" | databricks secrets put-secret techfin parc_client_secret --profile $DATABRICKS_PROFILE
-echo -n "<oauth_user>"         | databricks secrets put-secret techfin parc_oauth_user    --profile $DATABRICKS_PROFILE
-echo -n '<oauth_password>'     | databricks secrets put-secret techfin parc_oauth_password --profile $DATABRICKS_PROFILE
-databricks secrets put-acl techfin "$SP" READ --profile $DATABRICKS_PROFILE
+databricks bundle run setup_techfin_secrets --target <target-do-cliente> \
+  --params parc_client_id=<id>,parc_client_secret=<secret>,parc_oauth_user=<user>,parc_oauth_password=<pass>
 ```
 
-> **Importante**: na primeira execução o SP da app ainda não existe. Crie o scope com os 4 secrets, faça o deploy do bundle (passo 7) para criar a app e o SP, depois conceda READ ao SP.
+> **Importante**: na primeira execução o SP da app ainda não existe — o ACL será pulado. Após o passo 7 (deploy da app), atualize `${var.app_sp_id}` no `databricks.yml` com o SP real e rode o job novamente (idempotente — só atualiza o ACL).
+
+Alternativa manual via CLI (se preferir):
+```bash
+databricks secrets create-scope techfin --profile $DATABRICKS_PROFILE
+echo -n "<parc_client_id>"     | databricks secrets put-secret techfin parc_client_id     --profile $DATABRICKS_PROFILE
+# ... 3 puts ...
+databricks secrets put-acl techfin "$SP" READ --profile $DATABRICKS_PROFILE
+```
 
 ### 3. Criar projeto Lakebase
 

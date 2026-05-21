@@ -149,6 +149,47 @@ resources:
           spec:
             client: "5"
 
+    setup_techfin_secrets:
+      name: "ocr-financeiro-setup-techfin-secrets"
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ./notebooks/setup_techfin_secrets.py
+            base_parameters:
+              parc_client_id: ""        # passar via --params no bundle run
+              parc_client_secret: ""
+              parc_oauth_user: ""
+              parc_oauth_password: ""
+              app_sp_id: ${var.app_sp_id}
+              scope_name: "techfin"
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
+    migrate_correcoes_to_feedback:
+      name: "ocr-financeiro-migrate-correcoes"
+      tasks:
+        - task_key: migrate
+          notebook_task:
+            notebook_path: ./notebooks/migrate_correcoes_to_feedback.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              lakebase_host: ${var.lakebase_host}
+              lakebase_db: "ocr_financeiro"
+              sp_client_id: ${var.app_sp_id}
+            source: WORKSPACE
+          environment_key: default
+      performance_target: PERFORMANCE_OPTIMIZED
+      environments:
+        - environment_key: default
+          spec:
+            client: "5"
+
     register_model:
       name: "ocr-financeiro-register-model"
       tasks:
