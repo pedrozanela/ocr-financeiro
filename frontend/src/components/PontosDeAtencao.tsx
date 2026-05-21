@@ -407,10 +407,30 @@ export default function PontosDeAtencao({ records }: Props) {
   const [openItems, setOpenItems] = useState<Set<number>>(new Set())
 
   const byRecord = useMemo(
-    () => records.map(r => ({
-      record: r,
-      checks: VALIDATIONS.map(v => ({ ...v, result: v.check(r.data) })),
-    })),
+    () => records.map(r => {
+      const staticChecks = VALIDATIONS.map(v => ({ ...v, result: v.check(r.data) }))
+
+      // Avisos de fonte inconsistente vindos do _postprocess_validate_fontes
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pp: any[] = Array.isArray(r.data?._postprocessed) ? r.data._postprocessed : []
+      const fonteWarnings: (Validation & { result: CheckResult })[] = pp
+        .filter((w) => w && w.tipo === 'aviso_fonte_inconsistente')
+        .map((w) => ({
+          label: `Fonte inconsistente · ${w.campo}`,
+          description: 'Soma dos itens registrados em fontes diverge do valor extraído do campo.',
+          category: 'Fontes',
+          check: () => ({ status: 'warning' as Status, details: '' }),
+          result: {
+            status: 'warning' as Status,
+            details:
+              `Valor do campo: ${fmtN(w.valor_campo)} | ` +
+              `Soma fontes: ${fmtN(w.soma_fontes)} | ` +
+              `Diferença: ${fmtN(w.diferenca)}`,
+          },
+        }))
+
+      return { record: r, checks: [...staticChecks, ...fonteWarnings] }
+    }),
     [records]
   )
 

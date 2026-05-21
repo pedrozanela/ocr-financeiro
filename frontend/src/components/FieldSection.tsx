@@ -8,6 +8,11 @@ import {
   IconChevronRight, IconInfoCircle,
 } from '@tabler/icons-react'
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export type FonteItem = { nome: string; valor: number; operacao: '+' | '-' }
+export type FonteValue = string | FonteItem[]
+
 // ─── Constants / helpers ─────────────────────────────────────────────────────
 
 const brl = new Intl.NumberFormat('pt-BR', {
@@ -155,7 +160,7 @@ export default function FieldSection({
   const [editingPath, setEditingPath] = useState<string | null>(null)
   const [auditMode, setAuditMode] = useState(false)
 
-  const fontes: Record<string, string> = data?.fontes ?? {}
+  const fontes: Record<string, FonteValue> = data?.fontes ?? {}
   const postprocessedMap: Record<string, number> = {}
   if (data?._postprocessed && Array.isArray(data._postprocessed)) {
     for (const pp of data._postprocessed) postprocessedMap[pp.campo] = pp.original
@@ -444,7 +449,7 @@ interface RowCommon {
   extracted: string
   correction?: CorrectionData
   assessmentItem?: AssessmentItem
-  fonte?: string
+  fonte?: FonteValue
   llmOriginal?: number
   computedTotal?: number
   computedLabel?: string
@@ -796,16 +801,19 @@ function FieldRowAudit(props: RowCommon) {
 // "i" icon with hover tooltip showing the PDF source text used by the LLM.
 // Renders via portal to escape parent overflow:hidden. Position fixed with flip.
 
-function SourceTooltip({ fonte }: { fonte: string }) {
+function SourceTooltip({ fonte }: { fonte: FonteValue }) {
   const [pos, setPos] = useState<{ x: number; y: number; flip: boolean } | null>(null)
   const iconRef = useRef<HTMLSpanElement>(null)
   const timer = useRef<number | null>(null)
+
+  const isRich = Array.isArray(fonte)
+  const tooltipWidth = isRich ? 320 : 280
 
   function show() {
     timer.current = window.setTimeout(() => {
       if (!iconRef.current) return
       const r = iconRef.current.getBoundingClientRect()
-      const flip = r.right + 290 + 16 > window.innerWidth
+      const flip = r.right + tooltipWidth + 16 > window.innerWidth
       setPos({
         x: flip ? r.left - 8 : r.right + 8,
         y: r.top + r.height / 2,
@@ -821,9 +829,12 @@ function SourceTooltip({ fonte }: { fonte: string }) {
     setPos(null)
   }
 
-  const items = fonte.includes(' + ')
-    ? fonte.split(' + ').map(s => s.trim()).filter(Boolean)
-    : null
+  const brlPlain = new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })
+  const totalCalc = isRich
+    ? (fonte as FonteItem[]).reduce((acc, it) => acc + (it.operacao === '-' ? -it.valor : it.valor), 0)
+    : 0
 
   return (
     <>
@@ -831,6 +842,7 @@ function SourceTooltip({ fonte }: { fonte: string }) {
         ref={iconRef}
         onMouseEnter={show}
         onMouseLeave={hide}
+        onClick={(e) => e.stopPropagation()}
         className="inline-flex items-center text-gray-400 hover:text-gray-600 cursor-help shrink-0"
       >
         <IconInfoCircle size={13} />
@@ -844,18 +856,62 @@ function SourceTooltip({ fonte }: { fonte: string }) {
               left: pos.x,
               transform: `translate(${pos.flip ? '-100%' : '0'}, -50%)`,
               zIndex: 100,
+              maxWidth: tooltipWidth,
             }}
-            className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2.5 shadow-md max-w-[280px] pointer-events-none"
+            className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2.5 shadow-md pointer-events-none"
           >
-            <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">
+            <div
+              className="text-[11px] font-medium text-gray-500 uppercase mb-2"
+              style={{ letterSpacing: '0.04em' }}
+            >
               Fonte do PDF
             </div>
-            {items ? (
-              <ul className="text-xs text-gray-700 list-disc pl-4 space-y-0.5">
-                {items.map((item, i) => <li key={i}>{item}</li>)}
-              </ul>
+
+            {isRich ? (
+              <>
+                <div
+                  className="text-[13px] text-gray-700"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '14px 1fr auto',
+                    columnGap: 8,
+                    rowGap: 6,
+                    alignItems: 'baseline',
+                  }}
+                >
+                  {(fonte as FonteItem[]).map((it, i) => (
+                    <span key={i} style={{ display: 'contents' }}>
+                      <span
+                        className={`font-mono ${it.operacao === '-' ? 'text-red-600 font-semibold' : 'text-gray-400'}`}
+                      >
+                        {it.operacao === '-' ? '−' : '+'}
+                      </span>
+                      <span className="break-words">{it.nome}</span>
+                      <span className="font-mono text-gray-600 text-right tabular-nums">
+                        {brlPlain.format(it.valor)}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+                <div
+                  className="text-[13px] mt-2 pt-1.5 border-t border-gray-200"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '14px 1fr auto',
+                    columnGap: 8,
+                    rowGap: 6,
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <span className="font-mono text-gray-400">=</span>
+                  <span className="text-gray-500">Total</span>
+                  <span className="font-mono font-medium text-gray-900 text-right tabular-nums">
+                    {brlPlain.format(totalCalc)}
+                  </span>
+                </div>
+              </>
             ) : (
-              <div className="text-xs text-gray-700">{fonte}</div>
+              <div className="text-[13px] text-gray-700 break-words">{fonte as string}</div>
             )}
           </div>,
           document.body
