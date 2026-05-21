@@ -41,7 +41,6 @@ workspace:
 targets:
   # ── Ambiente pessoal (fevm-pzanela) ───────────────────────────────────
   fevm_pzanela:
-    default: true
     workspace:
       profile: fe-vm-fevm-pzanela-classic-aws
     variables:
@@ -78,6 +77,7 @@ targets:
       serverless_warehouse_id: "970182bc1a3cc5a0"
 
   dev:
+    default: true
     workspace:
       profile: dev
     variables:
