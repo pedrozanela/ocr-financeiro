@@ -25,8 +25,12 @@ print(f"Target: {catalog}.{schema}")
 
 # COMMAND ----------
 
+# NOTA: GRANT USE CATALOG comentado — operador comum costuma nao ter permissao
+# de conceder em nivel de catalog. Peca a um admin do workspace para rodar:
+#   GRANT USE CATALOG ON CATALOG <catalog> TO `<sp>`;
+# ou descomente abaixo se o usuario executor for catalog admin.
 grants = [
-    f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp}`",
+    # f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp}`",
     f"GRANT USE SCHEMA ON SCHEMA {catalog}.{schema} TO `{sp}`",
     f"GRANT SELECT, MODIFY ON SCHEMA {catalog}.{schema} TO `{sp}`",
     f"GRANT ALL PRIVILEGES ON VOLUME {catalog}.{schema}.documentos_pdf TO `{sp}`",
