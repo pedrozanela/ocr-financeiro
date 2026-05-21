@@ -41,12 +41,7 @@ INSTRUCTIONS = (
     "* Substitua qualquer valor null, vazio ou não informado por zero.\n"
     "* Formate todos os números para exibir exatamente 2 casas decimais, usando ponto como separador, "
     "mesmo que o valor seja inteiro ou zero (ex: 834988.00, 0.00, 15.50).\n"
-    "* Preencha o objeto `fontes` no JSON de saída: para cada campo com valor diferente de zero, indique "
-    "a(s) linha(s) do documento que originaram o valor. Use o caminho do campo como chave "
-    "(ex: 'ativo_circulante.impostos_a_recuperar') e como valor uma descrição CURTA (máx. 80 caracteres): "
-    "apenas o nome da conta principal e o valor. Se houver soma de múltiplas linhas, liste só os nomes "
-    "sem os valores individuais (ex: 'Caixa + Bancos CC + Bancos investimento'). "
-    "NÃO inclua cálculos detalhados, códigos contábeis ou valores parciais nas fontes.\n\n"
+    "* Preencha o objeto `fontes` no JSON de saída seguindo a seção `## REGISTRO DE FONTES` abaixo.\n\n"
 )
 
 JUDGE_SYSTEM_PROMPT = """\
@@ -76,6 +71,50 @@ Regras de classificação (sinalize se violadas):
 - Se a extração parecer correta, retorne []
 - Máximo 15 itens
 - Retorne APENAS o JSON array, sem texto adicional.\
+"""
+
+# Registro de fontes — instrucao estruturada (string ou array)
+REGISTRO_FONTES = """\
+## REGISTRO DE FONTES
+
+Para cada campo numérico do schema, registre em `fontes` o racional da extração.
+
+**Quando o valor vem de um único item do PDF**: registre como string com o nome literal do item.
+
+  Exemplo:
+  "fontes": {
+    "ativo_circulante.disponibilidades": "Caixa e equivalentes de caixa"
+  }
+
+**Quando o valor vem de uma soma ou diferença de múltiplos itens**: registre como
+array de objetos, um por item, com:
+  - `nome`: nome literal do item no documento
+  - `valor`: valor numérico do item (sempre positivo, sem o sinal — o sinal vai em `operacao`)
+  - `operacao`: "+" se somou, "-" se subtraiu
+
+  Exemplo de soma:
+  "fontes": {
+    "ativo_circulante.outros_ativos_circulantes": [
+      {"nome": "Adiantamentos", "valor": 12500.00, "operacao": "+"},
+      {"nome": "Despesas antecipadas", "valor": 2363.00, "operacao": "+"}
+    ]
+  }
+
+  Exemplo com subtração (receita líquida da DRE):
+  "fontes": {
+    "dre.receita_operacional_liquida": [
+      {"nome": "Receita Bruta", "valor": 5000000.00, "operacao": "+"},
+      {"nome": "Devoluções", "valor": 120000.00, "operacao": "-"},
+      {"nome": "Impostos sobre Vendas", "valor": 680000.00, "operacao": "-"}
+    ]
+  }
+
+**Regra de consistência**: a soma algébrica dos itens (valor × sinal de operação)
+deve resultar no valor extraído do campo. Se a aritmética não bater, prefira
+ajustar a fonte registrada em vez do valor do campo.
+
+**Não use array com 1 item**: se há apenas uma fonte, registre como string. Arrays
+têm sempre 2+ itens.
 """
 
 # Regras absolutas — aplicadas antes de tudo, com precedência total
@@ -111,6 +150,8 @@ Sua tarefa é extrair informações estruturadas de documentos financeiros (Bala
 ## INSTRUÇÕES DE EXTRAÇÃO
 
 {instructions}
+
+{registro_fontes}
 {fewshot}
 Retorne SOMENTE um JSON array válido seguindo exatamente o schema fornecido. Sem texto adicional.\
 """
@@ -361,6 +402,7 @@ class TechFinExtractorAgent(PythonModel):
             depara=self.depara_section,
             regras=self.regras_section,
             instructions=INSTRUCTIONS,
+            registro_fontes=REGISTRO_FONTES,
             fewshot=self._build_fewshot_section(),
         )
 
@@ -987,6 +1029,60 @@ class TechFinExtractorAgent(PythonModel):
 
         return result
 
+    @classmethod
+    def _postprocess_validate_fontes(cls, result):
+        """Valida que fontes estruturadas (array) somam algebricamente para o
+        valor do campo correspondente. Divergências viram avisos em _postprocessed.
+        Não altera valores — observação pura para o painel Pontos de Atenção."""
+        if not isinstance(result, dict) or result.get("error"):
+            return result
+        fontes = result.get("fontes")
+        if not isinstance(fontes, dict):
+            return result
+
+        for campo_path, fonte in fontes.items():
+            if not isinstance(fonte, list):
+                continue  # string ou outro tipo — sem validar
+
+            try:
+                soma = sum(
+                    (item.get("valor", 0) or 0) * (-1 if item.get("operacao") == "-" else 1)
+                    for item in fonte
+                    if isinstance(item, dict)
+                )
+            except (TypeError, ValueError):
+                continue
+
+            parts = campo_path.split(".")
+            obj = result
+            for p in parts[:-1]:
+                obj = obj.get(p, {}) if isinstance(obj, dict) else {}
+            if not isinstance(obj, dict):
+                continue
+            campo_valor = obj.get(parts[-1])
+            if not isinstance(campo_valor, (int, float)):
+                continue
+
+            tolerance = max(1.0, abs(campo_valor) * 0.01)
+            if abs(soma - campo_valor) <= tolerance:
+                continue
+
+            postprocessed = result.setdefault("_postprocessed", [])
+            postprocessed.append({
+                "tipo": "aviso_fonte_inconsistente",
+                "campo": campo_path,
+                "valor_campo": round(campo_valor, 2),
+                "soma_fontes": round(soma, 2),
+                "diferenca": round(campo_valor - soma, 2),
+                "motivo": (
+                    "A soma algébrica dos itens registrados em fontes não bate com "
+                    "o valor extraído do campo. Possível erro de registro do LLM "
+                    "(operador trocado, item esquecido, ou valor individual errado)."
+                ),
+            })
+
+        return result
+
     @staticmethod
     def _recover_truncated_json(raw: str):
         """Try to recover complete JSON records from a truncated response.
@@ -1105,6 +1201,7 @@ class TechFinExtractorAgent(PythonModel):
                 parsed = [self._postprocess_anti_duplicacao(r) for r in parsed]
                 parsed = [self._postprocess_outros(r) for r in parsed]
                 parsed = [self._postprocess_cascata_dre(r) for r in parsed]
+                parsed = [self._postprocess_validate_fontes(r) for r in parsed]
                 usage_summary = {
                     "extract_prompt_tokens": extract_usage["prompt_tokens"],
                     "extract_completion_tokens": extract_usage["completion_tokens"],

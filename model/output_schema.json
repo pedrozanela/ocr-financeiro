@@ -584,9 +584,25 @@
       },
       "fontes": {
         "type": "object",
-        "description": "Mapeamento campo -> texto exato do PDF que originou o valor",
+        "description": "Racional da extração: de qual item do PDF cada campo veio. String para single-item, array estruturado para multi-item.",
         "additionalProperties": {
-          "type": "string"
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "nome": { "type": "string" },
+                  "valor": { "type": "number" },
+                  "operacao": { "type": "string", "enum": ["+", "-"] }
+                },
+                "required": ["nome", "valor", "operacao"],
+                "additionalProperties": false
+              }
+            }
+          ]
         }
       }
     },
