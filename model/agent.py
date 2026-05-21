@@ -558,7 +558,11 @@ class TechFinExtractorAgent(PythonModel):
 
     def _postprocess_afac_in_pl(self, result):
         """AFAC em Patrimônio Líquido é erro de classificação da empresa.
-        Move para passivo_nao_circulante.cc_socios. Em outros campos, não age."""
+        Move para passivo_nao_circulante.cc_socios. Em outros campos, não age.
+        Atualiza total_patrimonio_liquido e total_passivo_nao_circulante para
+        manter consistência interna (sem isso, _postprocess_outros — que roda
+        depois — back-calcularia outros_passivos_nao_circulantes anulando o efeito).
+        passivo_total (PC+PNC+PL, modelo brasileiro) não muda."""
         if not isinstance(result, dict) or result.get("error"):
             return result
         fontes = result.get("fontes", {}) or {}
@@ -592,11 +596,29 @@ class TechFinExtractorAgent(PythonModel):
             target_obj = result.setdefault(target_grp, {})
             existing = target_obj.get(target_field, 0) or 0
             target_obj[target_field] = round(existing + value, 2)
+
+            # Atualizar totais para manter consistência (PL diminui, PNC aumenta)
+            pl_obj = result.setdefault("patrimonio_liquido", {})
+            pl_total_before = pl_obj.get("total_patrimonio_liquido", 0) or 0
+            pl_obj["total_patrimonio_liquido"] = round(pl_total_before - value, 2)
+
+            pnc_total_before = target_obj.get("total_passivo_nao_circulante", 0) or 0
+            target_obj["total_passivo_nao_circulante"] = round(pnc_total_before + value, 2)
+
             if target_path in result.get("fontes", {}):
                 result["fontes"][target_path] = f"{result['fontes'][target_path]} + {fonte_text}"
             else:
                 result["fontes"][target_path] = fonte_text
             result["fontes"].pop(campo, None)
+
+            # Instrumentação: telemetria para monitorar uso do postproc vs LLM
+            tipo_ent = result.get("tipo_entidade", "")
+            periodo = (result.get("identificacao") or {}).get("periodo", "")
+            print(
+                f"[AFAC-postproc] entidade={tipo_ent!r} periodo={periodo!r} "
+                f"campo_origem={campo!r} valor={value} fonte={fonte_text!r}"
+            )
+
             postprocessed = result.setdefault("_postprocessed", [])
             postprocessed.append({
                 "campo": campo, "original": value, "corrigido": 0,
@@ -606,6 +628,16 @@ class TechFinExtractorAgent(PythonModel):
                 "campo": target_path,
                 "original": existing, "corrigido": target_obj[target_field],
                 "motivo": f"AFAC recebido de {campo} (Regra Absoluta nº 1)",
+            })
+            postprocessed.append({
+                "campo": "patrimonio_liquido.total_patrimonio_liquido",
+                "original": pl_total_before, "corrigido": pl_obj["total_patrimonio_liquido"],
+                "motivo": f"Total PL ajustado: -{value} (saida de AFAC)",
+            })
+            postprocessed.append({
+                "campo": "passivo_nao_circulante.total_passivo_nao_circulante",
+                "original": pnc_total_before, "corrigido": target_obj["total_passivo_nao_circulante"],
+                "motivo": f"Total PNC ajustado: +{value} (entrada de AFAC)",
             })
         return result
 
