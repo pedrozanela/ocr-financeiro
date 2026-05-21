@@ -139,9 +139,17 @@ spark.sql(f"""
         tipo_erro_detalhe STRING,
         revisado_por STRING,
         revisado_em TIMESTAMP,
-        criado_em TIMESTAMP
+        criado_em TIMESTAMP,
+        valor_anterior DOUBLE,
+        reprocessado_em TIMESTAMP
     ) USING DELTA
 """)
+# Migracoes idempotentes (ambientes existentes)
+for col_ddl in ["valor_anterior DOUBLE", "reprocessado_em TIMESTAMP"]:
+    try:
+        spark.sql(f"ALTER TABLE {catalog}.{schema}.revisoes_em_andamento ADD COLUMN ({col_ddl})")
+    except Exception:
+        pass  # coluna ja existe
 print("Tabela revisoes_em_andamento OK")
 
 # Feedback LLM — audit log append-only (snapshot no Submeter)

@@ -89,30 +89,143 @@ def get_document(document_name: str):
     }
 
 
+@router.get("/documents/{document_name}/reprocess-preview")
+def reprocess_preview(document_name: str):
+    """Retorna contagens para o modal de confirmacao do reprocess.
+
+    - preservados: campos com status != 'llm' (corrigido + confirmado) -> mantidos
+    - podem_mudar: total de campos extraidos - preservados -> podem ter valor diferente
+    - total_campos: total de campos numericos no extracted_json mais recente
+    """
+    import json
+    rows = execute_sql(
+        f"""SELECT
+              (SELECT COUNT(*) FROM {REVISOES_TABLE}
+                WHERE document_name = :name AND status != 'llm') AS preservados,
+              (SELECT MAX(extracted_json) FROM {RESULTS_TABLE}
+                WHERE document_name = :name) AS extracted_json
+        """,
+        [{"name": "name", "value": document_name}],
+    )
+    if not rows:
+        raise HTTPException(404, "Documento nao encontrado")
+    row = rows[0]
+    preservados = int(row.get("preservados") or 0)
+    raw = row.get("extracted_json")
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception:
+        data = {}
+
+    # Conta campos numericos no JSON (recursivo, ignora identificacao/fontes/_postprocessed)
+    def count_numeric_fields(obj, prefix=''):
+        n = 0
+        if not isinstance(obj, dict):
+            return 0
+        for k, v in obj.items():
+            if k in ('fontes', '_postprocessed', 'identificacao'):
+                continue
+            if isinstance(v, dict):
+                n += count_numeric_fields(v, f"{prefix}{k}.")
+            elif isinstance(v, (int, float)):
+                n += 1
+        return n
+    total_campos = count_numeric_fields(data)
+    podem_mudar = max(0, total_campos - preservados)
+
+    return {
+        "document_name": document_name,
+        "total_campos": total_campos,
+        "preservados": preservados,
+        "podem_mudar": podem_mudar,
+    }
+
+
 @router.post("/documents/{document_name}/reprocess")
 def reprocess_document(document_name: str):
+    """Reprocessa preservando revisoes (status != 'llm').
+
+    Fluxo:
+    1. Snapshot do extracted_json atual em revisoes_em_andamento como status='llm'
+       com valor_anterior = valor atual (so para campos que ainda nao tem linha).
+    2. Marca reprocessado_em = NOW() em todas linhas existentes do doc.
+    3. DELETE resultados + resultados_final (o LLM vai re-extrair).
+    4. Dispara batch_job.
+
+    Pos-reprocess (quando job termina):
+    - Linhas com status != 'llm': preservadas (valor_corrente intacto).
+    - Linhas com status = 'llm' E valor_anterior IS NOT NULL: UI compara com novo
+      resultados.extracted_json e mostra badge 'mudou' se diferente.
+    """
     from .upload import _get_batch_job_id
-    from ..db import execute_update
+    import json
     client = get_client()
     try:
-        # Remove from resultados so batch_job picks it up as new
+        # 1. Snapshot dos valores atuais do extracted_json
+        rows = execute_sql(
+            f"""SELECT tipo_entidade, periodo, extracted_json FROM {RESULTS_TABLE}
+                WHERE document_name = :name""",
+            [{"name": "name", "value": document_name}],
+        )
+
+        def flatten(obj, prefix=''):
+            """Achata extracted_json em pares (path, valor_numerico)."""
+            out = {}
+            if not isinstance(obj, dict):
+                return out
+            for k, v in obj.items():
+                if k in ('fontes', '_postprocessed', 'identificacao'):
+                    continue
+                if isinstance(v, dict):
+                    out.update(flatten(v, f"{prefix}{k}."))
+                elif isinstance(v, (int, float)):
+                    out[f"{prefix}{k}"] = float(v)
+            return out
+
+        for r in rows:
+            te = r.get("tipo_entidade") or ""
+            per = r.get("periodo") or ""
+            raw = r.get("extracted_json")
+            try:
+                data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except Exception:
+                continue
+            campos_atual = flatten(data)
+
+            # Insere snapshot para campos llm puros (sem linha em revisoes)
+            for campo, valor in campos_atual.items():
+                execute_update(
+                    f"""INSERT INTO {REVISOES_TABLE}
+                          (document_name, campo, tipo_entidade, periodo,
+                           valor_extraido, valor_corrente, status,
+                           valor_anterior, reprocessado_em, criado_em)
+                        VALUES (:name, :campo, :te, :per, :v, :v, 'llm',
+                                :v, NOW(), NOW())
+                        ON CONFLICT (document_name, campo, tipo_entidade, periodo)
+                          DO UPDATE SET reprocessado_em = NOW()
+                    """,
+                    [
+                        {"name": "name",  "value": document_name},
+                        {"name": "campo", "value": campo},
+                        {"name": "te",    "value": te},
+                        {"name": "per",   "value": per},
+                        {"name": "v",     "value": valor},
+                    ],
+                )
+
+        # 2. DELETE resultados + resultados_final (LLM vai re-extrair)
         execute_update(
             f"DELETE FROM {RESULTS_TABLE} WHERE document_name = :name",
             [{"name": "name", "value": document_name}],
         )
-        # Tambem remove de resultados_final — reprocessamento reinicia o ciclo de
-        # revisao do zero (permitido mesmo se o doc estava 'finalizado').
         execute_update(
             f"DELETE FROM {RESULTS_FINAL_TABLE} WHERE document_name = :name",
             [{"name": "name", "value": document_name}],
         )
-        # Limpa estado transitorio da revisao
-        execute_update(
-            f"DELETE FROM {REVISOES_TABLE} WHERE document_name = :name",
-            [{"name": "name", "value": document_name}],
-        )
+        # NAO deleta REVISOES_TABLE — preserva revisoes do analista
+
+        # 3. Dispara batch_job
         job_id = _get_batch_job_id(client)
-        # Passa pdf_name para processar APENAS este documento (modo single)
         run = client.jobs.run_now(job_id=job_id, notebook_params={"pdf_name": document_name})
         _runs[document_name] = run.run_id
         return {"document_name": document_name, "status": "processing", "run_id": run.run_id}

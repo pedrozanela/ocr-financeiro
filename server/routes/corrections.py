@@ -122,19 +122,22 @@ def get_me(request: Request):
 def get_corrections(document_name: str):
     """Retorna o estado de revisao para o frontend, no formato compativel
     com o que ele ja espera: dict keyed por campo__te__per."""
+    # Inclui linhas com status='llm' SE elas tiverem valor_anterior (sinal de reprocess
+    # que mudou o valor). Frontend usa esse dado para mostrar badge "mudou".
     rows = execute_sql(
         f"""SELECT campo, COALESCE(tipo_entidade,'') AS tipo_entidade,
                    COALESCE(periodo,'') AS periodo,
-                   valor_extraido, valor_corrente,
+                   valor_extraido, valor_corrente, valor_anterior,
                    tipo_erro,
                    COALESCE(tipo_erro_detalhe, '') AS comentario,
                    status,
                    CAST(revisado_em AS STRING) AS confirmado_em,
                    COALESCE(revisado_por, '') AS confirmado_por,
+                   CAST(reprocessado_em AS STRING) AS reprocessado_em,
                    CAST(criado_em AS STRING) AS criado_em
             FROM {REVISOES_TABLE}
             WHERE document_name = :name
-              AND status != 'llm'
+              AND (status != 'llm' OR valor_anterior IS NOT NULL)
             ORDER BY criado_em DESC""",
         [{"name": "name", "value": document_name}],
     )
@@ -143,17 +146,20 @@ def get_corrections(document_name: str):
     for r in rows:
         ve = r.get("valor_extraido")
         vc = r.get("valor_corrente")
+        va = r.get("valor_anterior")
         out[f"{r['campo']}__{r['tipo_entidade']}__{r['periodo']}"] = {
             "campo": r["campo"],
             "tipo_entidade": r["tipo_entidade"],
             "periodo": r["periodo"],
             "valor_extraido": "" if ve is None else str(ve),
             "valor_correto":  "" if vc is None else str(vc),
+            "valor_anterior": None if va is None else str(va),
             "comentario": r["comentario"],
             "tipo_erro": r.get("tipo_erro"),
-            "status": r["status"],  # corrigido ou confirmado
+            "status": r["status"],
             "confirmado_em": r["confirmado_em"],
             "confirmado_por": r["confirmado_por"],
+            "reprocessado_em": r.get("reprocessado_em"),
             "criado_em": r["criado_em"],
         }
     return out

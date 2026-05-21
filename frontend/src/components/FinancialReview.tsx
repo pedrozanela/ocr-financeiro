@@ -198,6 +198,10 @@ export default function FinancialReview({ documentName }: Props) {
   const [saved, setSaved] = useState<string | null>(null)
   const [showPdf, setShowPdf] = useState(false)
   const [reprocessing, setReprocessing] = useState(false)
+  // Modal de confirmação do reprocess
+  const [reprocessPreview, setReprocessPreview] = useState<{
+    total_campos: number; preservados: number; podem_mudar: number
+  } | null>(null)
   const [reprocessError, setReprocessError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitConfirm, setSubmitConfirm] = useState(false)
@@ -359,9 +363,26 @@ export default function FinancialReview({ documentName }: Props) {
     }
   }
 
+  async function openReprocessConfirm() {
+    setReprocessError(null)
+    try {
+      const r = await fetch(`/api/documents/${encodeURIComponent(documentName)}/reprocess-preview`)
+      if (!r.ok) { showToast('Erro ao carregar dados do reprocessamento', 'error'); return }
+      const body = await r.json()
+      setReprocessPreview({
+        total_campos: body.total_campos ?? 0,
+        preservados:  body.preservados  ?? 0,
+        podem_mudar:  body.podem_mudar  ?? 0,
+      })
+    } catch (e) {
+      showToast(`Erro de rede: ${e instanceof Error ? e.message : 'desconhecido'}`, 'error')
+    }
+  }
+
   async function handleReprocess() {
     setReprocessing(true)
     setReprocessError(null)
+    setReprocessPreview(null)
     try {
       const r = await fetch(`/api/documents/${encodeURIComponent(documentName)}/reprocess`, { method: 'POST' })
       if (!r.ok) {
@@ -605,7 +626,7 @@ export default function FinancialReview({ documentName }: Props) {
               )}
 
               <button
-                onClick={handleReprocess}
+                onClick={openReprocessConfirm}
                 disabled={reprocessing || isFinalized}
                 className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-40"
               >
@@ -806,6 +827,92 @@ export default function FinancialReview({ documentName }: Props) {
       )}
 
       {/* Toast */}
+      {/* Modal de confirmacao do reprocess */}
+      {reprocessPreview && (() => {
+        const { total_campos, preservados, podem_mudar } = reprocessPreview
+        const semRevisoes = preservados === 0
+        const totalmenteRevisado = podem_mudar === 0 && preservados > 0
+        return (
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
+            onClick={() => setReprocessPreview(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setReprocessPreview(null)
+              if (e.key === 'Enter') { e.preventDefault(); handleReprocess() }
+            }}
+            tabIndex={-1}
+          >
+            <div
+              className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4">
+                <h3 className="text-base font-semibold text-gray-900">
+                  Reprocessar {data?.razao_social ?? documentName}?
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  O LLM vai extrair novamente os valores deste documento.
+                </p>
+              </div>
+
+              {totalmenteRevisado && (
+                <div className="mb-3 flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z" />
+                  </svg>
+                  <span>
+                    <strong>Todos os campos foram revisados.</strong> Reprocessar pode introduzir mudanças que vão exigir nova revisão.
+                  </span>
+                </div>
+              )}
+
+              <ul className="space-y-2 text-sm text-gray-700">
+                <li className="flex items-start gap-2">
+                  <svg className="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                  <span>
+                    {semRevisoes ? (
+                      'Nenhuma correção a preservar.'
+                    ) : (
+                      <>Suas correções e confirmações serão <strong>preservadas</strong> ({preservados} {preservados === 1 ? 'campo' : 'campos'}).</>
+                    )}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  <span>
+                    Campos não revisados podem ter valores diferentes ({podem_mudar} {podem_mudar === 1 ? 'campo' : 'campos'} de {total_campos} no total).
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <span>Pode levar alguns segundos.</span>
+                </li>
+              </ul>
+
+              <div className="flex justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setReprocessPreview(null)}
+                  disabled={reprocessing}
+                  className="text-sm px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleReprocess}
+                  disabled={reprocessing}
+                  autoFocus
+                  className={`text-sm px-4 py-2 rounded-lg text-white font-semibold disabled:opacity-40 ${
+                    totalmenteRevisado ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {reprocessing ? 'Reprocessando…' : (totalmenteRevisado ? 'Reprocessar mesmo assim' : 'Reprocessar')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {toast && <Toast message={toast.message} kind={toast.kind} onDone={() => setToast(null)} />}
     </div>
   )

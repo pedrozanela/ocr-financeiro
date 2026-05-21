@@ -6,6 +6,7 @@ import {
   IconSparkles, IconUserCheck, IconPencil, IconArrowBackUp,
   IconAlertCircle, IconEye, IconEyeOff, IconDownload, IconCheck, IconX,
   IconChevronRight, IconInfoCircle, IconTag,
+  IconArrowsExchange, IconArrowUp, IconArrowDown,
 } from '@tabler/icons-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -154,6 +155,9 @@ interface CorrectionData {
   confirmado_em?: string | null
   confirmado_por?: string | null
   tipo_erro?: string | null
+  // Tracking de mudancas de reprocessamento (status='llm' com valor_anterior)
+  valor_anterior?: string | null
+  reprocessado_em?: string | null
 }
 
 function getEffectiveNumericValue(
@@ -198,6 +202,7 @@ export default function FieldSection({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [editingPath, setEditingPath] = useState<string | null>(null)
   const [auditMode, setAuditMode] = useState(false)
+  const [showOnlyChanged, setShowOnlyChanged] = useState(false)
 
   const fontes: Record<string, FonteValue> = data?.fontes ?? {}
   const postprocessedMap: Record<string, number> = {}
@@ -257,18 +262,28 @@ export default function FieldSection({
   }
   const rootSum = Object.values(groupSumMap).reduce((a, b) => a + b, 0)
 
+  // Detecta se um campo "mudou" no último reprocess (status='llm' + valor_anterior != extracted)
+  function fieldChanged(fieldPath: string): boolean {
+    const c = corrections[fieldPath]
+    if (!c || c.status !== 'llm' || c.valor_anterior == null) return false
+    const va = parseFloat(c.valor_anterior)
+    const cur = parseFloat(getValue(data, fieldPath) || '0')
+    return !isNaN(va) && !isNaN(cur) && Math.abs(va - cur) > 0.001
+  }
+
   // Counters and bulk handlers
   function fieldCounts(fields: FieldDef[]) {
-    let total = 0, corrigidos = 0, confirmados = 0
+    let total = 0, corrigidos = 0, confirmados = 0, mudaram = 0
     for (const f of fields) {
       total++
       const c = corrections[f.path]
-      if (!c) continue
+      if (fieldChanged(f.path)) mudaram++
+      if (!c || c.status === 'llm') continue
       const valorLLM = getValue(data, f.path)
       if (c.valor_correto !== valorLLM) corrigidos++
       else confirmados++
     }
-    return { total, corrigidos, confirmados }
+    return { total, corrigidos, confirmados, mudaram }
   }
 
   async function bulkConfirmGroup(fields: FieldDef[]) {
@@ -318,7 +333,11 @@ export default function FieldSection({
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   function renderRowsForGroup(group: FieldGroup) {
-    return group.fields.map(field => {
+    // Aplica filtro "só mudados" — totais sempre passam (servem de referencia visual)
+    const visibleFields = showOnlyChanged
+      ? group.fields.filter(f => f.isTotal || fieldChanged(f.path))
+      : group.fields
+    return visibleFields.map(field => {
       const extracted = getValue(data, field.path)
       const correction = corrections[field.path]
       // Compute total for this row
@@ -371,11 +390,23 @@ export default function FieldSection({
               {counts.total} {counts.total === 1 ? 'campo' : 'campos'}
               {counts.corrigidos > 0 && <> · <span className="text-blue-600">{counts.corrigidos} corrigido{counts.corrigidos !== 1 ? 's' : ''}</span></>}
               {counts.confirmados > 0 && <> · <span className="text-blue-600">{counts.confirmados} confirmado{counts.confirmados !== 1 ? 's' : ''}</span></>}
+              {counts.mudaram > 0 && <> · <span className="text-amber-600">{counts.mudaram} mudaram</span></>}
             </p>
           </div>
         </div>
         {!readOnly && (
           <div className="flex items-center gap-2 shrink-0">
+            {counts.mudaram > 0 && (
+              <button
+                onClick={() => setShowOnlyChanged(v => !v)}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                  showOnlyChanged ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'
+                }`}
+              >
+                <IconArrowsExchange size={12} />
+                {showOnlyChanged ? `Mostrar todos` : `Só os que mudaram (${counts.mudaram})`}
+              </button>
+            )}
             <button
               onClick={() => setAuditMode(v => !v)}
               className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${
@@ -421,10 +452,22 @@ export default function FieldSection({
               {counts.total} {counts.total === 1 ? 'campo' : 'campos'}
               {counts.corrigidos > 0 && <> · <span className="text-blue-600">{counts.corrigidos} corrigido{counts.corrigidos !== 1 ? 's' : ''}</span></>}
               {counts.confirmados > 0 && <> · <span className="text-blue-600">{counts.confirmados} confirmado{counts.confirmados !== 1 ? 's' : ''}</span></>}
+              {counts.mudaram > 0 && <> · <span className="text-amber-600">{counts.mudaram} mudaram</span></>}
             </p>
           </div>
           {!readOnly && (
             <div className="flex items-center gap-2 shrink-0">
+              {counts.mudaram > 0 && (
+                <button
+                  onClick={() => setShowOnlyChanged(v => !v)}
+                  className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                    showOnlyChanged ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'
+                  }`}
+                >
+                  <IconArrowsExchange size={12} />
+                  {showOnlyChanged ? 'Mostrar todos' : `Só os que mudaram (${counts.mudaram})`}
+                </button>
+              )}
               <button
                 onClick={() => setAuditMode(v => !v)}
                 className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border ${
@@ -510,11 +553,23 @@ function FieldRowNormal(props: RowCommon) {
           computedTotal, computedLabel, llmOriginal } = props
   void _gv
   const isEditing = editingPath === field.path
-  const isReviewed = !!correction
+  // 'llm' com valor_anterior NÃO é revisado — é detecção de mudança do reprocess
+  const isReviewed = !!correction && correction.status !== 'llm'
   const valueChanged = isReviewed && correction!.valor_correto !== extracted
   const isTotal = field.isTotal ?? false
   const mult = getScaleMultiplier(scale)
   const skipScale = field.type === 'enum' || field.type === 'text' || field.type === 'date'
+
+  // Detecção de mudança no reprocess: campo llm com valor_anterior != extracted atual
+  const valorAnteriorRaw = correction?.valor_anterior ?? null
+  const valorAnteriorNum = valorAnteriorRaw != null ? parseFloat(valorAnteriorRaw) : null
+  const extractedNum = parseFloat(extracted || '0')
+  const reprocessChanged = !!correction
+    && correction.status === 'llm'
+    && valorAnteriorNum != null
+    && !isNaN(valorAnteriorNum)
+    && !isNaN(extractedNum)
+    && Math.abs(valorAnteriorNum - extractedNum) > 0.001
 
   // Effective displayed value (JSON-scale, before unit multiplication)
   const effectiveRaw = isReviewed ? correction!.valor_correto : extracted
@@ -669,7 +724,22 @@ function FieldRowNormal(props: RowCommon) {
               >
                 <IconUserCheck size={12} /> Revisado
               </span>
-            ) : isTotal ? (
+            ) : reprocessChanged ? (() => {
+              const va = valorAnteriorNum as number
+              const delta = extractedNum - va
+              const up = delta >= 0
+              const tooltip = va === 0
+                ? `Antes: vazio · Agora: ${brl.format(extractedNum * mult)}`
+                : `Antes: ${brl.format(va * mult)} (${up ? '↑' : '↓'} ${brl.format(Math.abs(delta) * mult)})`
+              return (
+                <span
+                  className="inline-flex items-center gap-1 text-amber-600 font-medium cursor-help"
+                  title={tooltip}
+                >
+                  {up ? <IconArrowUp size={12} /> : <IconArrowDown size={12} />} mudou
+                </span>
+              )
+            })() : isTotal ? (
               <span /> /* totais sem divergência: vazio */
             ) : (
               <span className="inline-flex items-center gap-1 text-gray-400">
