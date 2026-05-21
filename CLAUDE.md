@@ -39,10 +39,13 @@ Sistema de extração automatizada de dados financeiros (Balanço Patrimonial + 
 
 ### Tabelas (Lakebase PostgreSQL)
 - `documentos` — texto OCR extraído (PK: document_name)
-- `resultados` — JSON financeiro extraído + assessment (PK: document_name, tipo_entidade, periodo)
-- `correcoes` — correções manuais do usuário (PK: document_name, campo, tipo_entidade, periodo)
-- `resultados_final` — JSON com correções aplicadas (PK: document_name, tipo_entidade, periodo)
-- As mesmas tabelas existem em Delta (`{catalog}.{schema}.*`) — notebooks fazem dual-write
+- `resultados` — JSON financeiro extraído (LLM bruto) + assessment (PK: document_name, tipo_entidade, periodo)
+- `revisoes_em_andamento` — estado transitório da UI durante revisão. Cada linha é (doc, campo, te, per) com `status` ∈ {`llm`, `corrigido`, `confirmado`} + `tipo_erro` (8 categorias). Limpa no Submeter.
+- `feedback_llm` — append-only audit log. Snapshot de cada revisão ao Submeter (acao='corrigido'|'confirmado'), com `modelo_versao` + `prompt_versao` + `tipo_erro` + `fonte_llm` (JSONB). Source of truth para retreino/avaliação.
+- `resultados_final` — JSON consolidado pós-Submeter (`status='finalizado'`) + `techfin_response` (JSONB com resposta da API ou flag `dry_run`)
+- `correcoes_legado` — tabela renomeada da versão antiga `correcoes`. Read-only, mantida como backup pós-migração.
+- **Migração**: feita uma vez via `notebooks/migrate_correcoes_to_feedback.py` (idempotente). Detalhes em `DEPLOY.md`.
+- As mesmas tabelas existem em Delta (`{catalog}.{schema}.*`) mas o app só escreve no Lakebase. Delta serve para audit/análise via Spark/SQL warehouse.
 
 ### Modelo (model/agent.py)
 - MLflow PythonModel que chama Claude via Foundation Model API
@@ -98,6 +101,36 @@ databricks jobs run-now <JOB_ID> --profile fe-vm-fevm-pzanela-classic-aws --no-w
 - **Vision job**: 564671429208244
 - Frontend build: `cd frontend && rm -rf dist && npm run build` (clean build necessário para novas classes Tailwind)
 - Após deploy do bundle, usar `databricks apps deploy ocr-financeiro --source-code-path ...` para forçar re-read do app.yaml
+- Para subir em ambiente novo (cliente), seguir `DEPLOY.md` (runbook completo)
+
+### Integração Techfin (PARC)
+- Cliente em `server/integrations/techfin/`: `client.py` (OAuth password grant + cache token) + `mapper.py` (extracted_json → payload Techfin)
+- Secrets no scope `techfin`: `parc_client_id`, `parc_client_secret`, `parc_oauth_user`, `parc_oauth_password`
+- App SP precisa READ no scope
+- Endpoint: `POST /databricks/v1/balanco` (mas a URL atual retorna 404 — confirmar com Techfin)
+- `POST /api/finalize/{doc}?dry_run=true` simula submit sem chamar Techfin — payload salvo em `resultados_final.techfin_response.dry_run=true`
+- 409 da Techfin tratado como sucesso silencioso (upsert idempotente)
+- Re-submeter doc finalizado é permitido (UI: hover em Concluídos → ícone send)
+
+### Sidebar / DocumentList
+- `GET /api/documentos/sidebar-state` retorna `{version, documentos}` com status agregado: `nao_revisado` | `em_revisao` | `submetido` | `erro_submissao`
+- Frontend faz polling de 15s (60s quando aba oculta); só re-renderiza se `version` mudou
+- Status calculado em SQL: tem revisao com status != 'llm' → em_revisao; tem resultados_final.status='finalizado' → submetido
+- Sidebar tem 2 abas (Pendentes/Concluídos) com sort + agrupamento temporal (Hoje/Ontem/Esta semana/Mais antigos em America/Sao_Paulo)
+
+### Métricas (3 blocos)
+- `GET /api/metrics` (global) ou `/api/metrics/{doc}` (por documento) — estrutura unificada `{validacoes, acuracia, atividade}`
+- **Bloco 1**: 23 validações contábeis (Ativo=Passivo, somas, cascata DRE). Roda sobre `extracted_json`. Mede integridade dos PDFs, não acurácia do LLM.
+- **Bloco 2**: cobertura (revisado/total_campos) + taxa de confirmação (na amostra revisada). Comparação por `modelo_versao` com Δpp. Top campos com taxa de correção ≥ 5 revisões. Tipos de erro classificados (8 categorias).
+- **Bloco 3**: atividade da equipe. Tempo médio/mediana de revisão (`ingested_at` → `finalizado_em`). Por revisor (confirmações/correções separadas). Atividade recente com `modelo_versao` por linha.
+- Sem percentuais "tautológicos" (não mostra 100% acurácia em amostra pequena). Disclaimers em todos os blocos.
+
+### Editor inline (FieldSection.tsx)
+- Estado expandido opcional via link "Adicionar contexto": 8 pílulas de `tipo_erro` (radio) + campo `tipo_erro_detalhe` com placeholder dinâmico por categoria
+- Confirmar sem mudar valor não grava `tipo_erro` (status='confirmado' com `tipo_erro=NULL`)
+- Re-edit de campo classificado abre já expandido com pílula e detalhe preenchidos (puxado de `GET /api/corrections/{doc}`)
+- Input aceita formato BR (23.868.692,18) ou US (23868692.18); `parseNumericBR` normaliza, `onBlur` reformata
+- `auto_confirm: true` no POST `/api/corrections` → grava direto como 'confirmado' em revisoes_em_andamento
 
 ### Problemas Conhecidos
 - **Dupla contagem (Regra 23)**: O LLM às vezes extrai sub-itens de notas explicativas que já estão contidos em outro campo do balanço (ex: "Adiantamentos a fornecedores" dentro de Estoques). A Regra 23 no prompt instrui o modelo a evitar, mas nem sempre funciona. Pós-processamento programático foi tentado mas é difícil distinguir campos legítimos de duplicados apenas por aritmética. Abordagem atual: confiar no modelo + regra, e o frontend mostra a divergência ao usuário via badge amarelo.
