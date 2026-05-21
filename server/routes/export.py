@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from ..db import execute_sql
-from ..config import RESULTS_TABLE, CORRECTIONS_TABLE
+from ..config import RESULTS_TABLE, FEEDBACK_TABLE, REVISOES_TABLE
 
 router = APIRouter()
 
@@ -213,6 +213,34 @@ def export_excel(document: str | None = None):
             cell.border = border_light
 
     # ── Fetch data ────────────────────────────────────────────────────────────
+    # Correções vêm de DUAS fontes (UNION):
+    #   - feedback_llm:           docs submetidos (acao='corrigido')
+    #   - revisoes_em_andamento:  docs ainda em revisão (status='corrigido')
+    # Convertemos numeric → text para manter compat com a lógica abaixo.
+    corr_union_where_doc = "WHERE document_name = :doc"
+    corr_union_where_all = ""
+    corr_union_sql = lambda where_fb, where_rev: f"""
+        SELECT document_name, campo,
+               (valor_llm)::text   AS valor_extraido,
+               (valor_final)::text AS valor_correto,
+               COALESCE(tipo_erro_detalhe, '') AS comentario
+        FROM {FEEDBACK_TABLE}
+        {where_fb}
+        AND acao = 'corrigido'
+
+        UNION ALL
+
+        SELECT document_name, campo,
+               (valor_extraido)::text AS valor_extraido,
+               (valor_corrente)::text AS valor_correto,
+               COALESCE(tipo_erro_detalhe, '') AS comentario
+        FROM {REVISOES_TABLE}
+        {where_rev}
+        AND status = 'corrigido'
+
+        ORDER BY document_name, campo
+    """
+
     if document:
         params = [{"name": "doc", "value": document}]
         docs = execute_sql(
@@ -221,8 +249,7 @@ def export_excel(document: str | None = None):
             params,
         )
         corrections_rows = execute_sql(
-            f"SELECT document_name, campo, valor_extraido, valor_correto, comentario "
-            f"FROM {CORRECTIONS_TABLE} WHERE document_name = :doc ORDER BY document_name, campo",
+            corr_union_sql("WHERE document_name = :doc", "WHERE document_name = :doc"),
             params,
         )
     else:
@@ -231,8 +258,7 @@ def export_excel(document: str | None = None):
             f"FROM {RESULTS_TABLE} ORDER BY document_name, periodo, tipo_entidade"
         )
         corrections_rows = execute_sql(
-            f"SELECT document_name, campo, valor_extraido, valor_correto, comentario "
-            f"FROM {CORRECTIONS_TABLE} ORDER BY document_name, campo"
+            corr_union_sql("WHERE 1=1", "WHERE 1=1"),
         )
 
     # Build correction index: (doc, campo) → row

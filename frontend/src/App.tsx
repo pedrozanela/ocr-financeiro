@@ -7,9 +7,11 @@ export interface DocSummary {
   document_name: string
   razao_social: string | null
   cnpj: string | null
-  periodo: string | null
-  ativo_total: number | string | null
-  lucro_liquido: number | string | null
+  ingested_at: string | null
+  status: 'nao_revisado' | 'em_revisao' | 'submetido' | 'erro_submissao'
+  revisado_count: number
+  submetido_em: string | null
+  finalizado_por: string | null
 }
 
 export default function App() {
@@ -23,17 +25,47 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState<{ total: number; done: number; current: string[] }>({ total: 0, done: 0, current: [] })
   const [search, setSearch] = useState('')
   const [currentUser, setCurrentUser] = useState<string | null>(null)
+  // Polling da sidebar
+  const [sidebarVersion, setSidebarVersion] = useState<string | null>(null)
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
+  const [syncFailures, setSyncFailures] = useState(0)
 
-  function loadDocs() {
-    return fetch('/api/documents')
-      .then(r => r.json())
-      .then(data => { setDocs(data); setLoading(false) })
-      .catch(() => setLoading(false))
+  async function loadDocs(): Promise<void> {
+    try {
+      const r = await fetch('/api/documentos/sidebar-state')
+      if (!r.ok) { setSyncFailures(n => n + 1); return }
+      const data = await r.json()
+      setSyncFailures(0)
+      setLastSyncAt(Date.now())
+      // Atualiza só se a version mudou (evita re-render desnecessário)
+      if (data.version !== sidebarVersion) {
+        setSidebarVersion(data.version)
+        setDocs(data.documentos || [])
+      }
+    } catch {
+      setSyncFailures(n => n + 1)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     loadDocs()
     fetch('/api/me').then(r => r.json()).then(d => setCurrentUser(d.email)).catch(() => {})
+    // Polling: 15s ativo, 60s background
+    let interval = 15000
+    let timer: ReturnType<typeof setInterval> = setInterval(loadDocs, interval)
+    const onVisibility = () => {
+      clearInterval(timer)
+      interval = document.hidden ? 60000 : 15000
+      timer = setInterval(loadDocs, interval)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function handleDelete(documentName: string) {
@@ -185,7 +217,16 @@ export default function App() {
                 <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
               </div>
             ) : (
-              <DocumentList docs={docs} selected={selected} onSelect={setSelected} onDelete={handleDelete} search={search} />
+              <DocumentList
+                docs={docs}
+                selected={selected}
+                onSelect={setSelected}
+                onDelete={handleDelete}
+                search={search}
+                lastSyncAt={lastSyncAt}
+                syncFailures={syncFailures}
+                onRefresh={loadDocs}
+              />
             )
           ) : (
             <div className="flex-1 flex items-center justify-center text-white/25 text-xs px-6 text-center">

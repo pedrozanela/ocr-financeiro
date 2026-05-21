@@ -5,7 +5,7 @@ import { AssessmentItem } from './FinancialReview'
 import {
   IconSparkles, IconUserCheck, IconPencil, IconArrowBackUp,
   IconAlertCircle, IconEye, IconEyeOff, IconDownload, IconCheck, IconX,
-  IconChevronRight, IconInfoCircle,
+  IconChevronRight, IconInfoCircle, IconTag,
 } from '@tabler/icons-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -19,6 +19,44 @@ const brl = new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL',
   minimumFractionDigits: 2, maximumFractionDigits: 2,
 })
+
+const brNumber = new Intl.NumberFormat('pt-BR', {
+  minimumFractionDigits: 2, maximumFractionDigits: 2,
+})
+
+// Parse aceitando ambos formatos: "23.868.692,18" (BR) ou "23868692.18" (US/cru).
+// Heurística: se contém vírgula E ponto, o último é separador decimal.
+// Se só vírgula → BR. Se só ponto → US (a menos que apareça mais de uma vez = milhar BR).
+function parseNumericBR(s: string): number | null {
+  if (!s || !s.trim()) return null
+  const cleaned = s.trim().replace(/[^\d.,\-]/g, '')
+  if (!cleaned) return null
+  const lastComma = cleaned.lastIndexOf(',')
+  const lastDot = cleaned.lastIndexOf('.')
+  let normalized: string
+  if (lastComma === -1 && lastDot === -1) {
+    normalized = cleaned
+  } else if (lastComma > lastDot) {
+    // vírgula é decimal (BR): remove pontos (milhar) e troca vírgula por ponto
+    normalized = cleaned.replace(/\./g, '').replace(',', '.')
+  } else if (lastDot > lastComma) {
+    // ponto é decimal (US): remove vírgulas (milhar)
+    normalized = cleaned.replace(/,/g, '')
+  } else {
+    normalized = cleaned
+  }
+  // Heurística para "1.234" (sem vírgula): se há múltiplos pontos, todos são milhar → remove tudo
+  if (lastComma === -1 && (cleaned.match(/\./g) || []).length > 1) {
+    normalized = cleaned.replace(/\./g, '')
+  }
+  const n = parseFloat(normalized)
+  return isNaN(n) ? null : n
+}
+
+function formatBRNumber(n: number | null): string {
+  if (n === null || isNaN(n)) return ''
+  return brNumber.format(n)
+}
 
 function getScaleMultiplier(scale: string): number {
   const s = scale.toLowerCase().trim()
@@ -115,6 +153,7 @@ interface CorrectionData {
   status?: string
   confirmado_em?: string | null
   confirmado_por?: string | null
+  tipo_erro?: string | null
 }
 
 function getEffectiveNumericValue(
@@ -142,7 +181,7 @@ interface Props {
   saved: string | null
   documentName?: string
   getValue: (obj: unknown, path: string) => string
-  onSave: (campo: string, valorExtraido: string, valorCorreto: string, comentario: string) => Promise<void>
+  onSave: (campo: string, valorExtraido: string, valorCorreto: string, comentario: string, tipoErro?: string | null) => Promise<void>
   onDelete: (campo: string) => Promise<void>
   onConfirm: (campo: string) => Promise<void>
   onBulkConfirm?: (items: { campo: string; valor_extraido: string; valor_correto: string }[]) => Promise<void>
@@ -459,7 +498,7 @@ interface RowCommon {
   saving: boolean
   saved: boolean
   getValue: (obj: unknown, path: string) => string
-  onSave: (campo: string, valorExtraido: string, valorCorreto: string, comentario: string) => Promise<void>
+  onSave: (campo: string, valorExtraido: string, valorCorreto: string, comentario: string, tipoErro?: string | null) => Promise<void>
   onDelete: (campo: string) => Promise<void>
   editingPath: string | null
   setEditingPath: (p: string | null) => void
@@ -483,22 +522,19 @@ function FieldRowNormal(props: RowCommon) {
     ? brl.format(computedTotal)
     : formatValue(effectiveRaw, field.type, scale, field.options)
 
-  // Edit form state
+  // Edit form state — valor exibido em formato BR (23.868.692,18)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [editValue, setEditValue] = useState(() => {
+  function initialEditValue(): string {
     if (!effectiveRaw) return ''
     if (skipScale) return effectiveRaw
     const n = parseFloat(effectiveRaw)
-    return isNaN(n) ? effectiveRaw : String(n * mult)
-  })
+    if (isNaN(n)) return effectiveRaw
+    return formatBRNumber(n * mult)
+  }
+  const [editValue, setEditValue] = useState(initialEditValue)
   useEffect(() => {
     if (isEditing) {
-      setEditValue(() => {
-        if (!effectiveRaw) return ''
-        if (skipScale) return effectiveRaw
-        const n = parseFloat(effectiveRaw)
-        return isNaN(n) ? effectiveRaw : String(n * mult)
-      })
+      setEditValue(initialEditValue())
       setTimeout(() => inputRef.current?.focus(), 10)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -509,23 +545,25 @@ function FieldRowNormal(props: RowCommon) {
     setEditingPath(field.path)
   }
   function cancelEdit() { setEditingPath(null) }
-  async function commitEdit() {
+  // commitEdit recebe tipoErro/comentario do EditForm (estado interno dele)
+  async function commitEdit(tipoErro: string | null, comentario: string) {
     let toStore = editValue
     if (!skipScale) {
-      const n = parseFloat(editValue.replace(',', '.'))
-      if (!isNaN(n)) toStore = String(n / mult)
+      // Aceita formato BR (23.868.692,18) ou US (23868692.18)
+      const n = parseNumericBR(editValue)
+      if (n !== null) toStore = String(n / mult)
     }
-    await onSave(field.path, extracted, toStore, '')
+    // Se valor não mudou (status='confirmado'), zera tipo_erro: não classifica algo que não foi corrigido
+    const changed = toStore !== extracted
+    const finalTipo = changed ? tipoErro : null
+    const finalComent = changed ? comentario : ''
+    await onSave(field.path, extracted, toStore, finalComent, finalTipo)
     setEditingPath(null)
   }
   async function restoreOriginal() {
     if (!correction) return
     await onDelete(field.path)
     setEditingPath(null)
-  }
-  function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
-    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
   }
 
   // Total divergence indicator
@@ -535,7 +573,7 @@ function FieldRowNormal(props: RowCommon) {
   const totalDelta = totalDivergence ? (computedTotal ?? 0) - llmTotalScaled : 0
 
   const labelEl = (
-    <div className={`flex items-center gap-2 min-w-0 ${isTotal ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
+    <div className={`flex items-center gap-2 min-w-0 ${isEditing ? 'pt-2' : ''} ${isTotal ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
       {isTotal && <IconChevronRight size={14} className="text-gray-400 shrink-0" />}
       <span className={`text-sm truncate ${isTotal ? '' : ''}`} title={field.label}>
         {field.label}
@@ -559,7 +597,7 @@ function FieldRowNormal(props: RowCommon) {
             startEdit()
           }
         }}
-        className={`grid grid-cols-[220px_1fr_120px] gap-3 items-center px-4 py-2.5 border-b border-gray-100 ${
+        className={`grid grid-cols-[220px_1fr_120px] gap-3 ${isEditing ? 'items-start' : 'items-center'} px-4 py-2.5 border-b border-gray-100 ${
           isEditing ? 'cursor-default' : (readOnly ? 'cursor-default' : 'cursor-pointer')
         } focus:outline-none focus:bg-gray-50`}
       >
@@ -574,10 +612,11 @@ function FieldRowNormal(props: RowCommon) {
               setValue={setEditValue}
               skipScale={skipScale}
               inputRef={inputRef}
-              onKey={onKey}
-              onSave={commitEdit}
+              onCommit={commitEdit}
               onCancel={cancelEdit}
               onRestore={isReviewed ? restoreOriginal : undefined}
+              initialTipo={correction?.tipo_erro ?? null}
+              initialDetalhe={correction?.comentario ?? ''}
               llmOriginal={
                 llmOriginal !== undefined
                   ? brl.format(llmOriginal)
@@ -646,25 +685,87 @@ function FieldRowNormal(props: RowCommon) {
 
 // ─── Edit form (inline) ──────────────────────────────────────────────────────
 
+// 8 tipos de erro (id interno + label UI)
+const TIPO_ERRO_OPTS: { id: string; label: string }[] = [
+  { id: 'conta_campo_errado',   label: 'Conta no campo errado' },
+  { id: 'faltou_somar_contas',  label: 'Faltou somar contas' },
+  { id: 'campo_vazio_incorreto', label: 'Faltou extrair valor' },
+  { id: 'numero_errado',        label: 'Valor numérico incorreto' },
+  { id: 'escala_errada',        label: 'Escala errada (milhar/unidade)' },
+  { id: 'sinal_trocado',        label: 'Sinal trocado (+/−)' },
+  { id: 'conta_inventada',      label: 'Valor não existe no PDF' },
+  { id: 'outro',                label: 'Outro' },
+]
+
+const PLACEHOLDERS_BY_TIPO: Record<string, string> = {
+  conta_campo_errado:    'Ex: deveria estar em "Conta corrente sócios", não em "Outros ativos"',
+  faltou_somar_contas:   'Ex: deveria somar Empréstimos + Debêntures',
+  campo_vazio_incorreto: 'Ex: PDF mostra R$ 850.000 em Encargos Financeiros, LLM perdeu',
+  numero_errado:         'Ex: PDF diz 12.500.000, LLM extraiu 1.250.000',
+  escala_errada:         'Ex: documento em mil reais, mas LLM extraiu como unidade',
+  sinal_trocado:         'Ex: provisão deveria ser negativa, LLM extraiu positiva',
+  conta_inventada:       'Ex: esse valor não aparece em nenhuma linha do PDF',
+  outro:                 'Descreva o que está errado',
+}
+
 function EditForm({
-  field, value, setValue, skipScale, inputRef, onKey, onSave, onCancel, onRestore, llmOriginal, saving, valueChanged,
+  field, value, setValue, skipScale, inputRef, onCommit, onCancel, onRestore,
+  llmOriginal, saving, valueChanged, initialTipo, initialDetalhe,
 }: {
   field: FieldDef
   value: string
   setValue: (v: string) => void
   skipScale: boolean
   inputRef: React.RefObject<HTMLInputElement>
-  onKey: (e: React.KeyboardEvent<HTMLInputElement>) => void
-  onSave: () => void
+  onCommit: (tipoErro: string | null, comentario: string) => void
   onCancel: () => void
   onRestore?: () => void
   llmOriginal: string
   saving: boolean
   valueChanged: boolean
+  initialTipo: string | null
+  initialDetalhe: string
 }) {
   void valueChanged
+  // Se já existe uma classificação prévia (re-edit), abre expandido
+  const [expanded, setExpanded] = useState<boolean>(!!initialTipo || !!initialDetalhe)
+  const [tipoErro, setTipoErro] = useState<string | null>(initialTipo)
+  const [detalhe, setDetalhe] = useState<string>(initialDetalhe || '')
+  // Foco automático no input ao abrir o editor
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 10)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); onCommit(tipoErro, detalhe.trim()) }
+    else if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+  }
+  function toggleExpand() {
+    // Aviso antes de recolher se há estado preenchido
+    if (expanded && (tipoErro || detalhe.trim())) {
+      const ok = window.confirm('Recolher vai descartar o tipo de erro e detalhe. Continuar?')
+      if (!ok) return
+      setTipoErro(null)
+      setDetalhe('')
+    }
+    setExpanded(v => !v)
+  }
+  function togglePill(id: string) {
+    setTipoErro(prev => (prev === id ? null : id))
+  }
+  function restoreLocal() {
+    if (onRestore) {
+      setTipoErro(null)
+      setDetalhe('')
+      onRestore()
+    }
+  }
+  const placeholder = tipoErro ? PLACEHOLDERS_BY_TIPO[tipoErro] : 'Selecione um tipo de erro para ver exemplos'
+
   return (
-    <div className="w-full flex flex-col gap-2 py-1">
+    <div className="w-full flex flex-col gap-2 py-1" onClick={e => e.stopPropagation()}>
+      {/* Linha principal: input + ações */}
       <div className="flex items-center gap-2">
         {field.type === 'enum' && field.options ? (
           field.options.length <= 4 ? (
@@ -710,14 +811,20 @@ function EditForm({
               type={field.type === 'date' ? 'date' : 'text'}
               value={value}
               onChange={e => setValue(e.target.value)}
-              onKeyDown={onKey}
+              onKeyDown={handleKey}
+              onBlur={() => {
+                // Re-formata para BR ao perder foco (apenas number, sem skipScale)
+                if (field.type === 'number' && !skipScale) {
+                  const n = parseNumericBR(value)
+                  if (n !== null) setValue(formatBRNumber(n))
+                }
+              }}
               className="font-mono text-sm tabular-nums px-2 py-1.5 border border-gray-300 rounded-md w-[180px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               autoFocus
-              onClick={e => e.stopPropagation()}
             />
           </>
         )}
-        <div className="flex items-center gap-1.5 ml-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5 ml-auto">
           <button
             onClick={onCancel}
             disabled={saving}
@@ -726,7 +833,7 @@ function EditForm({
             <IconX size={12} /> Cancelar
           </button>
           <button
-            onClick={onSave}
+            onClick={() => onCommit(tipoErro, detalhe.trim())}
             disabled={saving}
             className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-40"
           >
@@ -735,18 +842,76 @@ function EditForm({
         </div>
       </div>
 
+      {/* Linha meta: original + restaurar + adicionar contexto */}
       <div className="flex items-center gap-3 text-[11px]">
         <span className="text-gray-500">Original do LLM: <span className="font-mono">{llmOriginal || '—'}</span></span>
         {onRestore && (
           <button
-            onClick={(e) => { e.stopPropagation(); onRestore() }}
+            onClick={(e) => { e.stopPropagation(); restoreLocal() }}
             className="inline-flex items-center gap-1 text-blue-600 hover:underline"
           >
             <IconArrowBackUp size={11} /> Restaurar original
           </button>
         )}
-        <span className="text-gray-400 ml-auto">Enter para salvar · Esc para cancelar</span>
+        <button
+          onClick={toggleExpand}
+          className={`inline-flex items-center gap-1 hover:underline ${expanded ? 'text-gray-500' : 'text-blue-600'}`}
+        >
+          <IconTag size={11} /> {expanded ? 'Recolher contexto' : 'Adicionar contexto'}
+          {tipoErro && !expanded && (
+            <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+              {TIPO_ERRO_OPTS.find(t => t.id === tipoErro)?.label ?? tipoErro}
+            </span>
+          )}
+        </button>
+        <span className="text-gray-400 ml-auto">Enter • Esc</span>
       </div>
+
+      {/* Linha contexto (expandido) */}
+      {expanded && (
+        <div className="pt-2 mt-1 border-t border-gray-200 flex flex-col gap-2 animate-fade-in">
+          <div>
+            <p className="text-[11px] font-medium text-gray-600 mb-1">Tipo de erro</p>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup">
+              {TIPO_ERRO_OPTS.map(opt => {
+                const checked = tipoErro === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    role="radio"
+                    aria-checked={checked}
+                    onClick={() => togglePill(opt.id)}
+                    className={`text-[11px] px-2.5 py-1 rounded-full border-2 transition-all ${
+                      checked
+                        ? 'bg-blue-600 border-blue-700 text-white font-semibold shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'
+                    }`}
+                  >
+                    {checked && <span className="mr-1">✓</span>}
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-gray-600 mb-1">
+              Detalhe <span className="text-gray-400 font-normal">(opcional)</span>
+            </p>
+            <input
+              type="text"
+              value={detalhe}
+              onChange={e => setDetalhe(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); onCommit(tipoErro, detalhe.trim()) }
+                else if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+              }}
+              placeholder={placeholder}
+              className="w-full max-w-[600px] text-[12px] px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

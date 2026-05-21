@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from ..db import execute_sql, execute_update
-from ..config import RESULTS_TABLE, RESULTS_FINAL_TABLE, SOURCE_TABLE, CORRECTIONS_TABLE, PDF_VOLUME_PATH, get_client
+from ..config import RESULTS_TABLE, RESULTS_FINAL_TABLE, SOURCE_TABLE, REVISOES_TABLE, PDF_VOLUME_PATH, get_client
 from .upload import _runs
 
 router = APIRouter()
@@ -46,7 +46,8 @@ def get_document(document_name: str):
                    COALESCE(periodo,'') AS periodo,
                    COALESCE(status, 'em_revisao') AS status,
                    CAST(finalizado_em AS STRING) AS finalizado_em,
-                   COALESCE(finalizado_por, '') AS finalizado_por
+                   COALESCE(finalizado_por, '') AS finalizado_por,
+                   techfin_response
             FROM {RESULTS_FINAL_TABLE}
             WHERE document_name = :name""",
         [{"name": "name", "value": document_name}],
@@ -73,6 +74,7 @@ def get_document(document_name: str):
             "status": f.get("status", "em_revisao"),
             "finalizado_em": f.get("finalizado_em") or "",
             "finalizado_por": f.get("finalizado_por") or "",
+            "techfin_response": f.get("techfin_response"),
         })
 
     # Documento é considerado finalizado quando TODOS os registros estão finalizados
@@ -102,6 +104,11 @@ def reprocess_document(document_name: str):
         # revisao do zero (permitido mesmo se o doc estava 'finalizado').
         execute_update(
             f"DELETE FROM {RESULTS_FINAL_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+        # Limpa estado transitorio da revisao
+        execute_update(
+            f"DELETE FROM {REVISOES_TABLE} WHERE document_name = :name",
             [{"name": "name", "value": document_name}],
         )
         job_id = _get_batch_job_id(client)
@@ -135,16 +142,26 @@ def delete_document(document_name: str):
         deleted_tables.append("documentos")
     except Exception as e:
         print(f"[delete] WARNING documentos: {e}")
-    # 3. Remove from correcoes
+    # 3. Remove from revisoes_em_andamento (estado transitorio)
     try:
         execute_update(
-            f"DELETE FROM {CORRECTIONS_TABLE} WHERE document_name = :name",
+            f"DELETE FROM {REVISOES_TABLE} WHERE document_name = :name",
             [{"name": "name", "value": document_name}],
         )
-        deleted_tables.append("correcoes")
+        deleted_tables.append("revisoes_em_andamento")
     except Exception as e:
-        print(f"[delete] WARNING correcoes: {e}")
-    # 4. Remove PDF from volume
+        print(f"[delete] WARNING revisoes: {e}")
+    # Nota: feedback_llm e correcoes_legado nao sao deletados — sao audit logs append-only.
+    # 4. Remove from resultados_final
+    try:
+        execute_update(
+            f"DELETE FROM {RESULTS_FINAL_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+        deleted_tables.append("resultados_final")
+    except Exception as e:
+        print(f"[delete] WARNING resultados_final: {e}")
+    # 5. Remove PDF from volume
     fname = document_name if document_name.endswith(".pdf") else f"{document_name}.pdf"
     try:
         client.files.delete(f"{PDF_VOLUME_PATH}/{fname}")
@@ -172,15 +189,102 @@ def get_document_ocr_text(document_name: str):
 @router.get("/documents/{document_name}/pdf")
 def get_document_pdf(document_name: str):
     client = get_client()
-    fname = document_name if document_name.endswith(".pdf") else f"{document_name}.pdf"
-    pdf_path = f"{PDF_VOLUME_PATH}/{fname}"
-    try:
-        dl = client.files.download(pdf_path)
-        content = dl.contents.read()
-        return Response(
-            content=content,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    # Garantir extensão (case-insensitive). Tenta o nome como veio, depois variantes.
+    base_name = document_name
+    candidates = []
+    if base_name.lower().endswith(".pdf"):
+        # Já tem extensão — testa exatamente como veio
+        candidates.append(base_name)
+        # Variantes de capitalização (.PDF, .pdf, .Pdf)
+        stem = base_name[:-4]
+        for ext in (".PDF", ".pdf", ".Pdf"):
+            cand = stem + ext
+            if cand not in candidates:
+                candidates.append(cand)
+    else:
+        # Sem extensão — adiciona ambas
+        candidates.append(f"{base_name}.pdf")
+        candidates.append(f"{base_name}.PDF")
+
+    last_err = None
+    for fname in candidates:
+        pdf_path = f"{PDF_VOLUME_PATH}/{fname}"
+        try:
+            dl = client.files.download(pdf_path)
+            content = dl.contents.read()
+            return Response(
+                content=content,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'inline; filename="{fname}"'},
+            )
+        except Exception as e:
+            last_err = e
+    raise HTTPException(404, f"PDF não encontrado: {last_err}")
+
+
+# ─── Sidebar state ───────────────────────────────────────────────────────────
+
+@router.get("/documentos/sidebar-state")
+def sidebar_state():
+    """Estado consolidado para a sidebar:
+      - Lista de documentos com status (nao_revisado / em_revisao / submetido).
+      - Contagem de revisões já tocadas e total de campos extraídos no JSON do LLM.
+      - Timestamp version pra polling (MAX dos timestamps relevantes).
+    """
+    rows = execute_sql(f"""
+        WITH doc_info AS (
+            SELECT d.document_name,
+                   d.ingested_at,
+                   MAX(r.razao_social) AS razao_social,
+                   MAX(r.cnpj)         AS cnpj
+            FROM {SOURCE_TABLE} d
+            LEFT JOIN {RESULTS_TABLE} r ON r.document_name = d.document_name
+            GROUP BY d.document_name, d.ingested_at
+        ),
+        revisoes_count AS (
+            SELECT document_name,
+                   SUM(CASE WHEN status = 'llm' THEN 1 ELSE 0 END)  AS llm_count,
+                   SUM(CASE WHEN status != 'llm' THEN 1 ELSE 0 END) AS revisado_count
+            FROM {REVISOES_TABLE}
+            GROUP BY document_name
+        ),
+        finalizados AS (
+            SELECT document_name,
+                   MAX(finalizado_em) AS finalizado_em,
+                   MAX(finalizado_por) AS finalizado_por
+            FROM {RESULTS_FINAL_TABLE}
+            WHERE status = 'finalizado'
+            GROUP BY document_name
         )
-    except Exception as e:
-        raise HTTPException(404, f"PDF não encontrado: {e}")
+        SELECT d.document_name,
+               d.razao_social,
+               d.cnpj,
+               CAST(d.ingested_at AS STRING) AS ingested_at,
+               COALESCE(rc.revisado_count, 0) AS revisado_count,
+               CAST(f.finalizado_em AS STRING) AS submetido_em,
+               COALESCE(f.finalizado_por, '') AS finalizado_por,
+               CASE
+                 WHEN f.finalizado_em IS NOT NULL AND COALESCE(rc.revisado_count, 0) = 0 THEN 'submetido'
+                 WHEN COALESCE(rc.revisado_count, 0) > 0 THEN 'em_revisao'
+                 ELSE 'nao_revisado'
+               END AS status
+        FROM doc_info d
+        LEFT JOIN revisoes_count rc ON rc.document_name = d.document_name
+        LEFT JOIN finalizados f     ON f.document_name = d.document_name
+        ORDER BY d.ingested_at DESC NULLS LAST
+    """)
+
+    # Version: MAX dos timestamps de mutação. Se nada existe ainda, fica '1970-01-01'.
+    # Usa ::text direto (CAST AS STRING não funciona com GREATEST aninhado pelo regex do db.py)
+    version_rows = execute_sql(f"""
+        SELECT (GREATEST(
+            COALESCE((SELECT MAX(ingested_at)   FROM {SOURCE_TABLE}),        '1970-01-01'::timestamptz),
+            COALESCE((SELECT MAX(revisado_em)   FROM {REVISOES_TABLE}),      '1970-01-01'::timestamptz),
+            COALESCE((SELECT MAX(criado_em)     FROM {REVISOES_TABLE}),      '1970-01-01'::timestamptz),
+            COALESCE((SELECT MAX(atualizado_em) FROM {RESULTS_FINAL_TABLE}), '1970-01-01'::timestamptz),
+            COALESCE((SELECT MAX(finalizado_em) FROM {RESULTS_FINAL_TABLE}), '1970-01-01'::timestamptz)
+        ))::text AS version
+    """)
+    version = version_rows[0]["version"] if version_rows else ""
+
+    return {"documentos": rows, "version": version}

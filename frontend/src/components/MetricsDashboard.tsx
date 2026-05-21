@@ -1,571 +1,467 @@
 import { useEffect, useState } from 'react'
+import { IconInfoCircle, IconChevronDown, IconChevronRight } from '@tabler/icons-react'
 
-interface ValidationDoc {
-  document_name: string
-  razao_social: string
-  records: number
-  ok: number
-  warn: number
-  error: number
-  total: number
-  pct_ok: number
-  issues: string[]
+// ─── Types ───────────────────────────────────────────────────────────────────
+interface ByDocVal {
+  document_name: string; razao_social: string
+  ok: number; warn: number; error: number; records: number
+}
+interface ByValidation {
+  label: string; error_docs: number; warn_docs: number; ok_docs: number
+}
+interface Validacoes {
+  total: number; ok: number; warn: number; error: number
+  by_doc: ByDocVal[]; by_validation: ByValidation[]
+}
+interface ByVersao {
+  modelo_versao: string; amostra: number
+  confirmados: number; corrigidos: number; taxa_confirmacao: number | null
+}
+interface TopCampo {
+  campo: string; revisoes: number; correcoes: number; taxa_correcao: number
+}
+interface TipoErro { tipo_erro: string; ocorrencias: number }
+interface Acuracia {
+  total_campos_extraidos: number; total_records: number
+  revisado: number; confirmados: number; corrigidos: number
+  cobertura_pct: number; confirmacao_pct: number | null
+  by_versao: ByVersao[]
+  top_campos: TopCampo[]
+  tipos_erro: TipoErro[]; tipos_erro_nao_classif: number
+}
+interface ByUser {
+  usuario: string; revisoes: number
+  confirmacoes: number; correcoes: number
+  ultima_atividade: string | null
+}
+interface RecentItem {
+  document_name: string; campo: string
+  valor_llm: string | null; valor_final: string | null
+  acao: string; tipo_erro: string; comentario: string
+  revisado_por: string; revisado_em: string
+  modelo_versao: string
+}
+interface Atividade {
+  docs_revisados: number
+  tempo_medio_min: number | null; tempo_mediana_min: number | null
+  by_user: ByUser[]; recent: RecentItem[]
+}
+interface MetricsData {
+  view: 'global' | 'document'
+  document_name?: string; razao_social?: string
+  total_docs?: number
+  validacoes: Validacoes
+  acuracia: Acuracia
+  atividade: Atividade
 }
 
-interface ValidationSummary {
-  global: { ok: number; warn: number; error: number; total: number; pct_ok: number; total_docs: number; docs_clean: number }
-  by_doc: ValidationDoc[]
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const brNum = new Intl.NumberFormat('pt-BR')
+function fmt(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return brNum.format(n)
+}
+function deltaPp(curr: number | null, prev: number | null): string {
+  if (curr == null || prev == null) return ''
+  const d = +(curr - prev).toFixed(1)
+  return (d >= 0 ? '+' : '') + d + 'pp'
+}
+function deltaColor(curr: number | null, prev: number | null): string {
+  if (curr == null || prev == null) return 'text-gray-400'
+  const d = curr - prev
+  if (d > 0.1) return 'text-emerald-600'
+  if (d < -0.1) return 'text-red-600'
+  return 'text-gray-500'
 }
 
-interface GlobalMetrics {
-  total_docs: number
-  total_corrections: number
-  pending_corrections: number
-  confirmed_corrections: number
-  docs_with_corrections: number
-  accuracy_pct: number | null
-  by_field: { campo: string; pendente: string; confirmado: string; total: string }[]
-  by_type: { tipo: string; total: string }[]
-  by_doc: { document_name: string; pendente: string; confirmado: string; total: string; razao_social: string | null; accuracy_pct: string | null; total_records: string }[]
-  by_user: { usuario: string; total_correcoes: string; confirmadas: string; ultima_correcao: string | null }[]
-  recent: { document_name: string; campo: string; valor_extraido: string; valor_correto: string; comentario: string; criado_por: string; criado_em: string | null; confirmado_por: string; confirmado_em: string | null; status: string }[]
-}
-
-interface DocumentMetrics {
-  document_name: string
-  razao_social: string | null
-  total_corrections: number
-  pending_corrections: number
-  confirmed_corrections: number
-  records_with_corrections: number
-  total_records: number
-  accuracy_pct: number | null
-  by_record: { tipo_entidade: string; periodo: string; pendente: string; confirmado: string; total: string; accuracy_pct: string | null }[]
-  by_field: { campo: string; pendente: string; confirmado: string; total: string }[]
-  by_type: { tipo: string; total: string }[]
-}
-
-function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: 'amber' | 'green' | 'gray' }) {
-  const colorClass = color === 'amber' ? 'text-amber-700' : color === 'green' ? 'text-green-700' : 'text-gray-900'
+// ─── Block ─────────────────────────────────────────────────────────────────
+function Block({
+  title, subtitle, disclaimer, defaultOpen = true, children,
+}: {
+  title: string; subtitle: string; disclaimer: string
+  defaultOpen?: boolean; children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="bg-white rounded-xl border border-gray-100 px-5 py-4">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-2xl font-bold ${colorClass} mt-1`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
+    <section className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <header
+        className="px-5 py-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              {open ? <IconChevronDown size={16} className="text-gray-400" /> : <IconChevronRight size={16} className="text-gray-400" />}
+              <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+            </div>
+            <p className="text-xs text-gray-500 mt-1 ml-6">{subtitle}</p>
+          </div>
+        </div>
+        <p className="mt-3 ml-6 flex items-start gap-1.5 text-[11px] text-gray-500 leading-relaxed">
+          <IconInfoCircle size={12} className="shrink-0 mt-0.5 text-gray-400" />
+          <span>{disclaimer}</span>
+        </p>
+      </header>
+      {open && <div className="px-5 py-4 space-y-4">{children}</div>}
+    </section>
   )
 }
 
-function StackedBar({ label, pending, confirmed, max }: { label: string; pending: number; confirmed: number; max: number }) {
-  const total = pending + confirmed
-  const pctPending = max > 0 ? (pending / max) * 100 : 0
-  const pctConfirmed = max > 0 ? (confirmed / max) * 100 : 0
+// ─── Bloco 1: Validações ───────────────────────────────────────────────────
+function BlockValidacoes({ v, totalDocs }: { v: Validacoes; totalDocs: number }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-600 w-52 shrink-0 truncate" title={label}>{label}</span>
-      <div className="flex-1 bg-gray-100 rounded-full h-2 flex">
-        {pending > 0 && <div className="bg-amber-500 h-2 rounded-l-full" style={{ width: `${pctPending}%` }} />}
-        {confirmed > 0 && <div className="bg-green-500 h-2 rounded-r-full" style={{ width: `${pctConfirmed}%` }} />}
+    <Block
+      title="Validações Contábeis"
+      subtitle="Integridade estrutural das demonstrações financeiras"
+      disclaimer="Mede consistência interna dos documentos extraídos. Não é acurácia do modelo — erros podem vir do PDF original."
+    >
+      <div className="bg-gray-50 border border-gray-100 rounded-lg p-4">
+        <p className="text-sm text-gray-700">
+          <span className="font-semibold tabular-nums">{fmt(v.total)}</span> validações executadas em{' '}
+          <span className="font-semibold tabular-nums">{fmt(totalDocs)}</span> documento{totalDocs !== 1 ? 's' : ''}
+        </p>
+        <div className="flex gap-4 mt-2 text-xs">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" /><span className="tabular-nums font-medium">{fmt(v.ok)}</span> OK</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" /><span className="tabular-nums font-medium">{fmt(v.warn)}</span> Avisos</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" /><span className="tabular-nums font-medium">{fmt(v.error)}</span> Erros</span>
+        </div>
       </div>
-      <div className="flex gap-1 items-center text-xs font-mono">
-        {pending > 0 && <span className="text-amber-700">{pending}</span>}
-        {confirmed > 0 && <span className="text-green-700">+{confirmed}</span>}
-        <span className="text-gray-400">=</span>
-        <span className="text-gray-700 font-semibold">{total}</span>
-      </div>
-    </div>
+
+      {v.by_doc.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Por documento (mais erros primeiro)</p>
+          <div className="border border-gray-100 rounded-lg divide-y divide-gray-100 max-h-72 overflow-y-auto">
+            {v.by_doc.slice(0, 20).map(d => (
+              <div key={d.document_name} className="flex items-center gap-3 px-3 py-2 text-xs">
+                <span className="flex-1 truncate" title={d.document_name}>{d.razao_social}</span>
+                <span className="text-red-600 tabular-nums w-20 text-right">{d.error} erro{d.error !== 1 ? 's' : ''}</span>
+                <span className="text-amber-600 tabular-nums w-20 text-right">{d.warn} aviso{d.warn !== 1 ? 's' : ''}</span>
+                <span className="text-gray-400 tabular-nums w-14 text-right">{d.ok} ok</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {v.by_validation.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Por tipo de validação</p>
+          <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
+            {v.by_validation.slice(0, 15).map(b => (
+              <div key={b.label} className="flex items-center gap-3 px-3 py-2 text-xs">
+                <span className="flex-1 truncate" title={b.label}>{b.label}</span>
+                <span className="text-red-600 tabular-nums w-24 text-right">{b.error_docs} doc{b.error_docs !== 1 ? 's' : ''} erro</span>
+                <span className="text-amber-600 tabular-nums w-24 text-right">{b.warn_docs} aviso{b.warn_docs !== 1 ? 's' : ''}</span>
+                <span className="text-gray-400 tabular-nums w-16 text-right">{b.ok_docs} ok</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Block>
   )
 }
 
-function Bar({ label, value, max }: { label: string; value: number; max: number }) {
-  const pct = max > 0 ? (value / max) * 100 : 0
+// ─── Bloco 2: Acurácia ─────────────────────────────────────────────────────
+function BlockAcuracia({ a }: { a: Acuracia }) {
+  const tipoErroLabels: Record<string, string> = {
+    conta_campo_errado: 'Conta no campo errado',
+    faltou_somar_contas: 'Faltou somar contas',
+    campo_vazio_incorreto: 'Faltou extrair valor',
+    numero_errado: 'Valor numérico incorreto',
+    escala_errada: 'Escala errada (milhar/unidade)',
+    sinal_trocado: 'Sinal trocado (+/−)',
+    conta_inventada: 'Valor não existe no PDF',
+    outro: 'Outro',
+  }
+  const totalTipos = a.tipos_erro.reduce((s, t) => s + t.ocorrencias, 0)
+  const totalCorrigidos = totalTipos + a.tipos_erro_nao_classif
+
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-600 w-52 shrink-0 truncate" title={label}>{label}</span>
-      <div className="flex-1 bg-gray-100 rounded-full h-2">
-        <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+    <Block
+      title="Acurácia do Modelo"
+      subtitle="Performance do LLM medida pela revisão humana"
+      disclaimer="Toda métrica é relativa à amostra revisada. Campos não revisados não contam — não fingimos saber sobre eles."
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="bg-gray-50 border border-gray-100 rounded-lg p-4">
+          <p className="text-[11px] text-gray-500 uppercase tracking-wider">Cobertura de revisão</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1 tabular-nums">{a.cobertura_pct}%</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            ({fmt(a.revisado)} de {fmt(a.total_campos_extraidos)} campos extraídos)
+          </p>
+        </div>
+        <div className="bg-gray-50 border border-gray-100 rounded-lg p-4">
+          <p className="text-[11px] text-gray-500 uppercase tracking-wider">Taxa de confirmação na amostra revisada</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1 tabular-nums">
+            {a.confirmacao_pct != null ? `${a.confirmacao_pct}%` : '—'}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            ({fmt(a.confirmados)} confirmados · {fmt(a.corrigidos)} corrigidos · n={fmt(a.revisado)})
+          </p>
+        </div>
       </div>
-      <span className="text-xs font-mono text-gray-700 w-6 text-right">{value}</span>
-    </div>
+      {a.total_campos_extraidos > a.revisado && (
+        <p className="text-[11px] text-gray-500 flex items-start gap-1.5">
+          <IconInfoCircle size={12} className="shrink-0 mt-0.5 text-gray-400" />
+          Sobre os {fmt(a.total_campos_extraidos - a.revisado)} campos não revisados, não temos evidência empírica de acerto ou erro.
+        </p>
+      )}
+
+      {a.by_versao.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Evolução por versão do modelo</p>
+          <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
+            {a.by_versao.map((v, i) => {
+              const prev = i > 0 ? a.by_versao[i - 1] : null
+              const d = prev ? deltaPp(v.taxa_confirmacao, prev.taxa_confirmacao) : ''
+              const dCls = prev ? deltaColor(v.taxa_confirmacao, prev.taxa_confirmacao) : ''
+              return (
+                <div key={v.modelo_versao} className="flex items-center gap-3 px-3 py-2 text-xs">
+                  <span className="flex-1 font-mono text-gray-700">{v.modelo_versao}</span>
+                  <span className="tabular-nums font-medium text-gray-900">{v.taxa_confirmacao ?? '—'}%</span>
+                  <span className="text-gray-500 tabular-nums">(n={fmt(v.amostra)})</span>
+                  {d && <span className={`tabular-nums w-16 text-right ${dCls}`}>Δ {d}</span>}
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5 flex items-start gap-1">
+            <IconInfoCircle size={11} className="shrink-0 mt-0.5" />
+            Δ relativo à versão anterior. Amostras diferentes — comparação não é exata.
+          </p>
+        </div>
+      )}
+
+      {a.top_campos.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Campos onde o LLM erra mais (n ≥ 5 revisões)</p>
+          <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
+            {a.top_campos.map(c => (
+              <div key={c.campo} className="flex items-center gap-3 px-3 py-2 text-xs">
+                <span className="flex-1 font-mono text-gray-700 truncate" title={c.campo}>{c.campo}</span>
+                <span className="tabular-nums font-medium text-red-600 w-16 text-right">{c.taxa_correcao}%</span>
+                <span className="text-gray-500 tabular-nums">({c.correcoes} de {c.revisoes})</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(a.tipos_erro.length > 0 || a.tipos_erro_nao_classif > 0) && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Tipos de erro nas correções (com classificação)</p>
+          <div className="space-y-1.5">
+            {a.tipos_erro.map(t => {
+              const pct = totalTipos > 0 ? Math.round(t.ocorrencias / totalTipos * 100) : 0
+              return (
+                <div key={t.tipo_erro} className="flex items-center gap-3 text-xs">
+                  <span className="w-44 truncate text-gray-700">{tipoErroLabels[t.tipo_erro] || t.tipo_erro}</span>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="tabular-nums text-gray-600 w-20 text-right">{t.ocorrencias} ({pct}%)</span>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-gray-500 mt-2 flex items-start gap-1.5">
+            <IconInfoCircle size={11} className="shrink-0 mt-0.5 text-gray-400" />
+            {fmt(totalTipos)} correç{totalTipos !== 1 ? 'ões' : 'ão'} classificada{totalTipos !== 1 ? 's' : ''} de {fmt(totalCorrigidos)} totais
+            {a.tipos_erro_nao_classif > 0 && <>. {a.tipos_erro_nao_classif} sem classificação (legado ou não preenchido).</>}
+          </p>
+        </div>
+      )}
+    </Block>
   )
 }
 
+// ─── Bloco 3: Atividade ────────────────────────────────────────────────────
+function BlockAtividade({ at, totalDocs, totalRecords }: { at: Atividade; totalDocs: number; totalRecords: number }) {
+  return (
+    <Block
+      title="Atividade de Revisão"
+      subtitle="Produtividade da equipe e histórico de operações"
+      disclaimer="Mede trabalho realizado pela equipe, não qualidade do modelo. Mais correções podem indicar modelo pior OU equipe mais atenta."
+    >
+      <div className="bg-gray-50 border border-gray-100 rounded-lg p-4 text-sm">
+        <p className="text-gray-700">
+          <span className="font-semibold tabular-nums">{fmt(at.docs_revisados)}</span> documento{at.docs_revisados !== 1 ? 's' : ''} com revisão (de {fmt(totalDocs)})
+        </p>
+        <p className="text-xs text-gray-500 mt-1 tabular-nums">{fmt(totalRecords * 70)} campos extraídos no total</p>
+        {(at.tempo_medio_min != null || at.tempo_mediana_min != null) && (
+          <p className="text-xs text-gray-600 mt-2">
+            Tempo de revisão por documento (ingestão → submissão):
+            {at.tempo_medio_min != null   && <> média <span className="font-semibold tabular-nums">{at.tempo_medio_min} min</span></>}
+            {at.tempo_mediana_min != null && <> · mediana <span className="font-semibold tabular-nums">{at.tempo_mediana_min} min</span></>}
+          </p>
+        )}
+      </div>
+
+      {at.by_user.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Atividade por revisor</p>
+          <div className="border border-gray-100 rounded-lg overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr className="text-gray-500">
+                  <th className="text-left px-3 py-2 font-medium">Revisor</th>
+                  <th className="text-right px-3 py-2 font-medium">Revisões</th>
+                  <th className="text-right px-3 py-2 font-medium">Confirmações</th>
+                  <th className="text-right px-3 py-2 font-medium">Correções</th>
+                  <th className="text-right px-3 py-2 font-medium">Última atividade</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {at.by_user.map(u => (
+                  <tr key={u.usuario}>
+                    <td className="px-3 py-2 truncate">{u.usuario}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{u.revisoes}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-emerald-700">{u.confirmacoes}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-amber-700">{u.correcoes}</td>
+                    <td className="px-3 py-2 text-right text-gray-500 tabular-nums">{u.ultima_atividade ? u.ultima_atividade.substring(0, 19).replace('T', ' ') : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {at.recent.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-2">Atividade recente</p>
+          <div className="border border-gray-100 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr className="text-gray-500">
+                  <th className="text-left px-3 py-2 font-medium">Quando</th>
+                  <th className="text-left px-3 py-2 font-medium">Documento</th>
+                  <th className="text-left px-3 py-2 font-medium">Campo</th>
+                  <th className="text-left px-3 py-2 font-medium">Ação</th>
+                  <th className="text-left px-3 py-2 font-medium">LLM → Final</th>
+                  <th className="text-left px-3 py-2 font-medium">Tipo</th>
+                  <th className="text-left px-3 py-2 font-medium">Versão</th>
+                  <th className="text-left px-3 py-2 font-medium">Por</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {at.recent.map((r, i) => (
+                  <tr key={i}>
+                    <td className="px-3 py-2 text-gray-500 tabular-nums whitespace-nowrap">{r.revisado_em?.substring(0, 19).replace('T', ' ') || '—'}</td>
+                    <td className="px-3 py-2 truncate max-w-[160px]" title={r.document_name}>{r.document_name}</td>
+                    <td className="px-3 py-2 font-mono text-gray-700">{r.campo}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${r.acao === 'corrigido' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {r.acao}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono tabular-nums">
+                      {r.acao === 'corrigido' ? (
+                        <span><span className="text-gray-400 line-through">{r.valor_llm}</span> → <span className="text-gray-900">{r.valor_final}</span></span>
+                      ) : (
+                        <span className="text-gray-500">{r.valor_final}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{r.tipo_erro || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 font-mono text-[10px]">{r.modelo_versao || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 truncate max-w-[120px]" title={r.revisado_por}>{r.revisado_por}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Block>
+  )
+}
+
+// ─── Documentos para o seletor ─────────────────────────────────────────────
+interface DocOption { document_name: string; razao_social: string | null }
+
+// ─── Main ──────────────────────────────────────────────────────────────────
 export default function MetricsDashboard() {
   const [view, setView] = useState<'global' | 'document'>('global')
-  const [globalData, setGlobalData] = useState<GlobalMetrics | null>(null)
-  const [docData, setDocData] = useState<DocumentMetrics | null>(null)
   const [selectedDoc, setSelectedDoc] = useState<string>('')
-  const [validations, setValidations] = useState<ValidationSummary | null>(null)
+  const [data, setData] = useState<MetricsData | null>(null)
+  const [docs, setDocs] = useState<DocOption[]>([])
   const [loading, setLoading] = useState(true)
-  const [modelUpdating, setModelUpdating] = useState(false)
-  const [modelUpdateMsg, setModelUpdateMsg] = useState<string | null>(null)
-  const [reconciling, setReconciling] = useState(false)
-  const [reconcileMsg, setReconcileMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      fetch('/api/metrics').then(r => r.json()),
-      fetch('/api/metrics/validations').then(r => r.json()),
-    ]).then(([m, v]) => {
-      setGlobalData(m)
-      setValidations(v)
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    fetch('/api/documentos/sidebar-state').then(r => r.json()).then(d => setDocs(d.documentos || [])).catch(() => setDocs([]))
   }, [])
 
   useEffect(() => {
-    if (view === 'document' && selectedDoc) {
-      fetch(`/api/metrics/${encodeURIComponent(selectedDoc)}`)
-        .then(r => r.json())
-        .then(d => setDocData(d))
-        .catch(() => setDocData(null))
-    }
+    if (view === 'document' && !selectedDoc) { setLoading(false); return }
+    setLoading(true)
+    const url = view === 'global'
+      ? '/api/metrics'
+      : `/api/metrics/${encodeURIComponent(selectedDoc)}`
+    fetch(url).then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
   }, [view, selectedDoc])
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-full text-gray-400 text-sm">Carregando métricas…</div>
-  }
-  if (!globalData) {
-    return <div className="flex items-center justify-center h-full text-red-500 text-sm">Erro ao carregar métricas.</div>
-  }
-
-  const data = view === 'global' ? globalData : docData
-  const maxField = data ? Math.max(...data.by_field.map(r => parseInt(r.pendente || '0') + parseInt(r.confirmado || '0')), 1) : 1
-  const maxType  = data ? Math.max(...data.by_type.map(r => parseInt(r.total) || 0), 1) : 1
-
-  async function handleUpdateModel() {
-    setModelUpdating(true)
-    setModelUpdateMsg(null)
-    try {
-      const res = await fetch('/api/admin/update-model', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok) {
-        setModelUpdateMsg(`Job disparado (run ${data.run_id}). Modelo será atualizado em ~10min.`)
-      } else {
-        setModelUpdateMsg(`Erro: ${data.detail || 'falha ao disparar'}`)
-      }
-    } catch {
-      setModelUpdateMsg('Erro de conexão')
-    } finally {
-      setModelUpdating(false)
-    }
-  }
-
-  async function handleReconcile() {
-    setReconciling(true)
-    setReconcileMsg(null)
-    try {
-      const res = await fetch('/api/admin/reconcile-corrections', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok) {
-        setReconcileMsg(`${data.resolved} correções resolvidas, ${data.still_pending} ainda pendentes.`)
-      } else {
-        setReconcileMsg(`Erro: ${data.detail || 'falha'}`)
-      }
-    } catch {
-      setReconcileMsg('Erro de conexão')
-    } finally {
-      setReconciling(false)
-    }
-  }
-
   return (
-    <div className="p-6 space-y-6 overflow-y-auto h-full">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-base font-bold text-gray-900">Métricas de Acurácia</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {view === 'global' ? 'Visão consolidada de todos os documentos' : `Detalhes do documento: ${docData?.razao_social ?? selectedDoc}`}
-          </p>
-          {modelUpdateMsg && <p className="text-xs text-amber-600 mt-1">{modelUpdateMsg}</p>}
-          {reconcileMsg && <p className="text-xs text-green-600 mt-1">{reconcileMsg}</p>}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Admin actions */}
-          <button
-            disabled={modelUpdating}
-            onClick={handleUpdateModel}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
-              modelUpdating
-                ? 'bg-amber-50 text-amber-300 border-amber-200 cursor-wait'
-                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-            }`}
-          >
-            <svg className={`w-3 h-3 ${modelUpdating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            {modelUpdating ? 'Atualizando…' : 'Atualizar Modelo'}
-          </button>
-
-          <button
-            disabled={reconciling}
-            onClick={handleReconcile}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
-              reconciling
-                ? 'bg-green-50 text-green-300 border-green-200 cursor-wait'
-                : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-            }`}
-          >
-            <svg className={`w-3 h-3 ${reconciling ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {reconciling ? 'Reconciliando…' : 'Reconciliar Correções'}
-          </button>
-
-          {/* View selector */}
-          <button
-            onClick={() => setView('global')}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-              view === 'global'
-                ? 'bg-[#0F2137] text-white border-[#0F2137]'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-[#0F2137] hover:text-[#0F2137]'
-            }`}
-          >
-            Global
-          </button>
-          <button
-            onClick={() => setView('document')}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-              view === 'document'
-                ? 'bg-[#0F2137] text-white border-[#0F2137]'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-[#0F2137] hover:text-[#0F2137]'
-            }`}
-          >
-            Por Documento
-          </button>
-
-          {/* Document selector (only when view === 'document') */}
-          {view === 'document' && (
-            <select
-              value={selectedDoc}
-              onChange={e => setSelectedDoc(e.target.value)}
-              className="text-xs px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-700 hover:border-[#0F2137] focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              <option value="">Selecione um documento…</option>
-              {globalData.by_doc.map(d => (
-                <option key={d.document_name} value={d.document_name}>
-                  {d.razao_social ?? d.document_name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
-
-      {/* Global view */}
-      {view === 'global' && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <StatCard label="Documentos revisados" value={String(globalData.total_docs)} />
-            <StatCard
-              label="Acurácia confirmada"
-              value={globalData.accuracy_pct != null ? `${globalData.accuracy_pct}%` : '—'}
-              sub={`${globalData.confirmed_corrections} confirmados em ~${globalData.total_docs * 70} campos`}
-            />
-            <StatCard label="Total de correções" value={String(globalData.total_corrections)} sub={`${globalData.docs_with_corrections} docs afetados`} />
-            <StatCard label="Pendentes" value={String(globalData.pending_corrections)} color="amber" />
-            <StatCard label="Confirmadas" value={String(globalData.confirmed_corrections)} color="green" />
+    <div className="h-full overflow-y-auto bg-gray-50 px-6 py-5">
+      <div className="max-w-5xl mx-auto space-y-4">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Métricas</h1>
+            <p className="text-xs text-gray-500 mt-1">
+              {view === 'document' && data?.view === 'document'
+                ? `Documento: ${data.razao_social ?? data.document_name}`
+                : 'Visão consolidada de todos os documentos'}
+            </p>
           </div>
-
-          {/* Validation scores */}
-          {validations && (
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-800">Validações Contábeis</h3>
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> OK: {validations.global.ok}</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Avisos: {validations.global.warn}</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Erros: {validations.global.error}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-8 mb-6">
-                <div className="relative w-28 h-28">
-                  <svg viewBox="0 0 36 36" className="w-28 h-28 -rotate-90">
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" strokeWidth="3" />
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#10b981" strokeWidth="3"
-                      strokeDasharray={`${validations.global.pct_ok} ${100 - validations.global.pct_ok}`} strokeLinecap="round" />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-xl font-bold text-gray-900">{validations.global.pct_ok}%</span>
-                    <span className="text-[10px] text-gray-400">aprovadas</span>
-                  </div>
-                </div>
-                <div className="text-xs text-gray-500 space-y-1">
-                  <p><strong className="text-gray-700">{validations.global.total_docs}</strong> documentos analisados</p>
-                  <p><strong className="text-emerald-700">{validations.global.docs_clean}</strong> sem nenhum problema</p>
-                  <p><strong className="text-amber-700">{validations.global.total_docs - validations.global.docs_clean}</strong> com avisos ou erros</p>
-                  <p><strong className="text-gray-700">{validations.global.total}</strong> validações executadas</p>
-                </div>
-              </div>
-              <h4 className="text-xs font-semibold text-gray-600 mb-3">Por documento</h4>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {validations.by_doc.map(d => {
-                  const pctOk = d.total > 0 ? (d.ok / d.total) * 100 : 100
-                  const pctWarn = d.total > 0 ? (d.warn / d.total) * 100 : 0
-                  const pctErr = d.total > 0 ? (d.error / d.total) * 100 : 0
-                  return (
-                    <div key={d.document_name} className="group">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs text-gray-600 w-48 truncate shrink-0" title={d.razao_social}>{d.razao_social}</span>
-                        <div className="flex-1 bg-gray-100 rounded-full h-2.5 flex overflow-hidden">
-                          <div className="bg-emerald-500 h-full" style={{ width: `${pctOk}%` }} />
-                          <div className="bg-amber-500 h-full" style={{ width: `${pctWarn}%` }} />
-                          <div className="bg-red-500 h-full" style={{ width: `${pctErr}%` }} />
-                        </div>
-                        <span className={`text-xs font-bold w-12 text-right ${d.pct_ok >= 95 ? 'text-emerald-700' : d.pct_ok >= 80 ? 'text-amber-700' : 'text-red-700'}`}>
-                          {d.pct_ok}%
-                        </span>
-                      </div>
-                      {d.issues.length > 0 && (
-                        <div className="hidden group-hover:flex flex-wrap gap-1 ml-[200px] mt-0.5 mb-1">
-                          {d.issues.map((issue, i) => (
-                            <span key={i} className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded">{issue}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+          <div className="flex items-center gap-2">
+            <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setView('global')}
+                className={`text-xs px-3 py-1.5 font-medium ${view === 'global' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Global
+              </button>
+              <button
+                onClick={() => setView('document')}
+                className={`text-xs px-3 py-1.5 font-medium ${view === 'document' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Por Documento
+              </button>
             </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Campos com mais erros</h3>
-              {globalData.by_field.length === 0 ? (
-                <p className="text-xs text-gray-400">Nenhuma correção registrada.</p>
-              ) : (
-                <div className="space-y-2.5">
-                  {globalData.by_field.map(r => (
-                    <StackedBar
-                      key={r.campo}
-                      label={r.campo}
-                      pending={parseInt(r.pendente) || 0}
-                      confirmed={parseInt(r.confirmado) || 0}
-                      max={maxField}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Tipo de erro mais comum</h3>
-              {globalData.by_type.length === 0 ? (
-                <p className="text-xs text-gray-400">Nenhuma correção registrada.</p>
-              ) : (
-                <div className="space-y-2.5">
-                  {globalData.by_type.map(r => (
-                    <Bar key={r.tipo} label={r.tipo} value={parseInt(r.total) || 0} max={maxType} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* By user */}
-          {globalData.by_user?.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Atividade por revisor</h3>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-100">
-                    <th className="text-left pb-2 font-medium">Usuário</th>
-                    <th className="text-right pb-2 font-medium">Correções</th>
-                    <th className="text-right pb-2 font-medium">Confirmadas</th>
-                    <th className="text-right pb-2 font-medium">Última atividade</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {globalData.by_user.map(r => (
-                    <tr key={r.usuario}>
-                      <td className="py-2 text-gray-700 font-medium">{r.usuario}</td>
-                      <td className="py-2 text-right font-mono text-gray-700">{r.total_correcoes}</td>
-                      <td className="py-2 text-right font-mono text-green-700">{r.confirmadas}</td>
-                      <td className="py-2 text-right text-gray-400">
-                        {r.ultima_correcao ? r.ultima_correcao.substring(0, 16).replace('T', ' ') : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Recent corrections */}
-          {globalData.recent?.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Correções recentes</h3>
-              <div className="space-y-2">
-                {globalData.recent.map((r, i) => (
-                  <div key={i} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                    <div className={`mt-0.5 w-1.5 h-1.5 rounded-full shrink-0 ${r.status === 'confirmado' ? 'bg-green-400' : 'bg-amber-400'}`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold text-gray-700 truncate">{r.campo}</span>
-                        <span className="text-[10px] text-gray-400 truncate max-w-[180px]">{r.document_name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs font-mono text-gray-400 line-through">{r.valor_extraido || '—'}</span>
-                        <svg className="w-3 h-3 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                        </svg>
-                        <span className="text-xs font-mono font-semibold text-gray-700">{r.valor_correto || '—'}</span>
-                        {r.comentario && <span className="text-[10px] text-gray-400 italic truncate">{r.comentario}</span>}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-[10px] text-gray-500 font-medium">{r.criado_por}</p>
-                      <p className="text-[10px] text-gray-300">
-                        {r.criado_em ? r.criado_em.substring(0, 16).replace('T', ' ') : ''}
-                      </p>
-                    </div>
-                  </div>
+            {view === 'document' && (
+              <select
+                value={selectedDoc}
+                onChange={e => setSelectedDoc(e.target.value)}
+                className="text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white max-w-[260px]"
+              >
+                <option value="">Selecione…</option>
+                {docs.map(d => (
+                  <option key={d.document_name} value={d.document_name}>
+                    {d.razao_social || d.document_name}
+                  </option>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {globalData.by_doc.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Todos os documentos</h3>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-100">
-                    <th className="text-left pb-2 font-medium">Empresa</th>
-                    <th className="text-left pb-2 font-medium">Arquivo</th>
-                    <th className="text-right pb-2 font-medium">Registros</th>
-                    <th className="text-right pb-2 font-medium">Pendente</th>
-                    <th className="text-right pb-2 font-medium">Confirmado</th>
-                    <th className="text-right pb-2 font-medium">Total</th>
-                    <th className="text-right pb-2 font-medium">Acurácia</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {globalData.by_doc.map(r => {
-                    const acc = parseFloat(r.accuracy_pct || '0')
-                    const accColor = acc >= 99 ? 'text-green-700' : acc >= 95 ? 'text-amber-700' : 'text-red-700'
-                    return (
-                      <tr key={r.document_name} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedDoc(r.document_name); setView('document') }}>
-                        <td className="py-2 text-gray-700 truncate max-w-[150px]">{r.razao_social ?? '—'}</td>
-                        <td className="py-2 text-gray-400 truncate max-w-[150px]">{r.document_name}</td>
-                        <td className="py-2 text-right font-mono text-gray-500">{r.total_records}</td>
-                        <td className="py-2 text-right font-mono text-amber-700">{r.pendente}</td>
-                        <td className="py-2 text-right font-mono text-green-700">{r.confirmado}</td>
-                        <td className="py-2 text-right font-mono font-semibold text-gray-700">{r.total}</td>
-                        <td className={`py-2 text-right font-mono font-bold ${accColor}`}>{r.accuracy_pct ? `${r.accuracy_pct}%` : '—'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Document view */}
-      {view === 'document' && docData && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard
-              label="Acurácia do documento"
-              value={docData.accuracy_pct != null ? `${docData.accuracy_pct}%` : '—'}
-              sub={`${docData.total_records} registros · ~${docData.total_records * 70} campos`}
-            />
-            <StatCard label="Total de correções" value={String(docData.total_corrections)} sub={`${docData.records_with_corrections} registros afetados`} />
-            <StatCard label="Pendentes" value={String(docData.pending_corrections)} color="amber" />
-            <StatCard label="Confirmadas" value={String(docData.confirmed_corrections)} color="green" />
+              </select>
+            )}
           </div>
+        </div>
 
-          {/* By record (tipo_entidade + periodo) */}
-          {docData.by_record.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Acurácia por registro (tipo entidade × período)</h3>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-100">
-                    <th className="text-left pb-2 font-medium">Tipo Entidade</th>
-                    <th className="text-left pb-2 font-medium">Período</th>
-                    <th className="text-right pb-2 font-medium">Pendente</th>
-                    <th className="text-right pb-2 font-medium">Confirmado</th>
-                    <th className="text-right pb-2 font-medium">Total</th>
-                    <th className="text-right pb-2 font-medium">Acurácia</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {docData.by_record.map((r, i) => {
-                    const acc = parseFloat(r.accuracy_pct || '0')
-                    const accColor = acc >= 99 ? 'text-green-700' : acc >= 95 ? 'text-amber-700' : 'text-red-700'
-                    return (
-                      <tr key={i}>
-                        <td className="py-2 text-gray-700">{r.tipo_entidade || 'INDIVIDUAL'}</td>
-                        <td className="py-2 text-gray-700">{r.periodo ? r.periodo.substring(0, 10) : '—'}</td>
-                        <td className="py-2 text-right font-mono text-amber-700">{r.pendente}</td>
-                        <td className="py-2 text-right font-mono text-green-700">{r.confirmado}</td>
-                        <td className="py-2 text-right font-mono font-semibold text-gray-700">{r.total}</td>
-                        <td className={`py-2 text-right font-mono font-bold ${accColor}`}>{r.accuracy_pct ? `${r.accuracy_pct}%` : '—'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+        {loading && <div className="text-sm text-gray-500 py-12 text-center">Carregando métricas…</div>}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Campos com mais erros</h3>
-              {docData.by_field.length === 0 ? (
-                <p className="text-xs text-gray-400">Nenhuma correção neste documento.</p>
-              ) : (
-                <div className="space-y-2.5">
-                  {docData.by_field.map(r => (
-                    <StackedBar
-                      key={r.campo}
-                      label={r.campo}
-                      pending={parseInt(r.pendente) || 0}
-                      confirmed={parseInt(r.confirmado) || 0}
-                      max={maxField}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Tipo de erro</h3>
-              {docData.by_type.length === 0 ? (
-                <p className="text-xs text-gray-400">Nenhuma correção neste documento.</p>
-              ) : (
-                <div className="space-y-2.5">
-                  {docData.by_type.map(r => (
-                    <Bar key={r.tipo} label={r.tipo} value={parseInt(r.total) || 0} max={maxType} />
-                  ))}
-                </div>
-              )}
-            </div>
+        {!loading && view === 'document' && !selectedDoc && (
+          <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-sm text-gray-500">
+            Selecione um documento para ver suas métricas.
           </div>
-        </>
-      )}
+        )}
 
-      {view === 'document' && !docData && selectedDoc && (
-        <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-          Carregando métricas do documento…
-        </div>
-      )}
-      {view === 'document' && !selectedDoc && (
-        <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-          Selecione um documento acima para ver métricas detalhadas
-        </div>
-      )}
-
-      <p className="text-xs text-gray-400">
-        * Acurácia baseada em correções <strong>confirmadas</strong>. Correções pendentes não afetam a métrica.
-      </p>
+        {!loading && data && (view === 'global' || selectedDoc) && (
+          <>
+            <BlockValidacoes v={data.validacoes} totalDocs={data.total_docs ?? 1} />
+            <BlockAcuracia   a={data.acuracia} />
+            <BlockAtividade  at={data.atividade} totalDocs={data.total_docs ?? 1} totalRecords={data.acuracia.total_records} />
+          </>
+        )}
+      </div>
     </div>
   )
 }

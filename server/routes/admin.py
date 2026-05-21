@@ -1,8 +1,8 @@
 import json
 import os
 from fastapi import APIRouter, HTTPException
-from ..db import execute_sql, execute_update
-from ..config import get_client, FEWSHOT_JOB_ID, CORRECTIONS_TABLE, RESULTS_TABLE
+from ..db import execute_sql
+from ..config import get_client, FEWSHOT_JOB_ID, FEEDBACK_TABLE, RESULTS_TABLE
 
 router = APIRouter()
 
@@ -52,34 +52,37 @@ def get_model_update_status(run_id: int):
 
 @router.post("/admin/reconcile-corrections")
 def reconcile_corrections():
-    """Compare corrections with current extracted values. Mark as 'resolvido' if model now matches."""
-    # Get all non-resolved corrections
+    """Análise read-only: das correções históricas em feedback_llm (acao='corrigido'),
+    quantas o modelo atual já extrai corretamente (compara com extracted_json atual)?
+    Útil para medir progresso do modelo. Não muda dados — feedback_llm é append-only."""
     corrections = execute_sql(f"""
-        SELECT c.document_name, c.tipo_entidade, c.periodo, c.campo, c.valor_correto,
+        SELECT f.document_name, f.tipo_entidade, f.periodo, f.campo,
+               f.valor_final, f.modelo_versao,
                r.extracted_json
-        FROM {CORRECTIONS_TABLE} c
+        FROM {FEEDBACK_TABLE} f
         JOIN {RESULTS_TABLE} r
-            ON c.document_name = r.document_name
-            AND COALESCE(c.tipo_entidade, '') = COALESCE(r.tipo_entidade, '')
-            AND COALESCE(c.periodo, '') = COALESCE(r.periodo, '')
-        WHERE COALESCE(c.status, 'pendente') != 'resolvido'
+            ON f.document_name = r.document_name
+            AND COALESCE(f.tipo_entidade, '') = COALESCE(r.tipo_entidade, '')
+            AND COALESCE(f.periodo, '') = COALESCE(r.periodo, '')
+        WHERE f.acao = 'corrigido'
     """)
 
-    resolved = 0
-    still_pending = 0
+    now_correct = 0
+    still_wrong = 0
+    by_modelo: dict = {}
 
     for row in corrections:
         campo = row["campo"]
-        valor_correto = row["valor_correto"]
+        valor_final = row["valor_final"]
         extracted_json = row["extracted_json"]
+        modelo_v = row.get("modelo_versao") or "unknown"
 
         try:
             data = json.loads(extracted_json) if isinstance(extracted_json, str) else extracted_json
         except (json.JSONDecodeError, TypeError):
-            still_pending += 1
+            still_wrong += 1
             continue
 
-        # Navigate to the field value in extracted_json
         parts = campo.split(".")
         cur = data
         for p in parts:
@@ -90,42 +93,31 @@ def reconcile_corrections():
                 break
 
         if cur is None:
-            still_pending += 1
-            continue
-
-        # Compare: is the current extracted value close to the corrected value?
-        try:
-            current_val = float(cur)
-            corrected_val = float(valor_correto)
-            match = abs(current_val - corrected_val) < 0.01 * max(abs(corrected_val), 1)
-        except (ValueError, TypeError):
-            match = str(cur).strip() == str(valor_correto).strip()
-
-        if match:
-            # Model now extracts the correct value — mark as resolved
-            doc = row["document_name"].replace("'", "''")
-            te = (row["tipo_entidade"] or "").replace("'", "''")
-            per = (row["periodo"] or "").replace("'", "''")
-            campo_esc = campo.replace("'", "''")
-            execute_update(
-                f"""UPDATE {CORRECTIONS_TABLE}
-                    SET status = 'resolvido', resolvido_em = CURRENT_TIMESTAMP()
-                    WHERE document_name = :name AND campo = :campo
-                      AND COALESCE(tipo_entidade, '') = :te
-                      AND COALESCE(periodo, '') = :per""",
-                [
-                    {"name": "name",  "value": row["document_name"]},
-                    {"name": "campo", "value": campo},
-                    {"name": "te",    "value": row["tipo_entidade"] or ""},
-                    {"name": "per",   "value": row["periodo"] or ""},
-                ],
-            )
-            resolved += 1
+            still_wrong += 1
+            match = False
         else:
-            still_pending += 1
+            try:
+                current_val = float(cur)
+                corrected_val = float(valor_final)
+                match = abs(current_val - corrected_val) < 0.01 * max(abs(corrected_val), 1)
+            except (ValueError, TypeError):
+                match = str(cur).strip() == str(valor_final).strip()
 
+            if match: now_correct += 1
+            else:     still_wrong += 1
+
+        bucket = by_modelo.setdefault(modelo_v, {"now_correct": 0, "still_wrong": 0})
+        if match: bucket["now_correct"] += 1
+        else:     bucket["still_wrong"] += 1
+
+    total = now_correct + still_wrong
     return {
-        "resolved": resolved,
-        "still_pending": still_pending,
-        "total": resolved + still_pending,
+        "now_correct": now_correct,
+        "still_wrong": still_wrong,
+        "total": total,
+        "pct_resolved_by_model": round(now_correct / total * 100, 1) if total > 0 else 0,
+        "by_modelo_versao": [
+            {"modelo_versao": k, **v, "total": v["now_correct"] + v["still_wrong"]}
+            for k, v in sorted(by_modelo.items())
+        ],
     }
