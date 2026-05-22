@@ -22,7 +22,10 @@ export default function App() {
   const [uploading, setUploading] = useState(false)
   const [uploadingPerf, setUploadingPerf] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [uploadProgress, setUploadProgress] = useState<{ total: number; done: number; current: string[] }>({ total: 0, done: 0, current: [] })
+  type BatchItemStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error'
+  interface BatchItem { name: string; status: BatchItemStatus }
+  const [uploadProgress, setUploadProgress] = useState<{ items: BatchItem[]; startedAt: number | null }>({ items: [], startedAt: null })
+  const [batchElapsed, setBatchElapsed] = useState(0)
   const [search, setSearch] = useState('')
   const [currentUser, setCurrentUser] = useState<string | null>(null)
   // Polling da sidebar
@@ -101,29 +104,48 @@ export default function App() {
     }
   }
 
+  function updateItem(originalName: string, patch: Partial<BatchItem>) {
+    setUploadProgress(p => ({
+      ...p,
+      items: p.items.map(it => it.name === originalName ? { ...it, ...patch } : it),
+    }))
+  }
+
   async function processFiles(files: File[], endpoint: string, setFlag: (v: boolean) => void) {
     if (files.length === 0) return
     setFlag(true)
     setUploadError(null)
-    setUploadProgress({ total: files.length, done: 0, current: [] })
+    // Inicializa todos os items como 'queued' usando o filename
+    const items: BatchItem[] = files.map(f => ({ name: f.name, status: 'queued' }))
+    setUploadProgress({ items, startedAt: Date.now() })
     try {
-      // Upload all files first (sequential to avoid overload)
+      // Upload sequencial: cada arquivo passa de 'queued' -> 'uploading' -> (no fim) 'processing'
       const docNames: string[] = []
       for (const file of files) {
-        docNames.push(await uploadSingleFile(file, endpoint))
+        updateItem(file.name, { status: 'uploading' })
+        try {
+          const docName = await uploadSingleFile(file, endpoint)
+          docNames.push(docName)
+          // Renomeia o item pro docName retornado (pra match com poll/status)
+          setUploadProgress(p => ({
+            ...p,
+            items: p.items.map(it => it.name === file.name
+              ? { ...it, name: docName, status: 'processing' }
+              : it),
+          }))
+        } catch (e) {
+          updateItem(file.name, { status: 'error' })
+          throw e
+        }
       }
-      // Track processing names
-      setUploadProgress(p => ({ ...p, current: [...docNames] }))
-      // Poll each in parallel, refresh docs as each completes
+      // Poll todos em paralelo, marca como done/error conforme cada termina
       await Promise.all(docNames.map(async (name) => {
         try {
           await pollUntilDone(name)
-        } catch { /* individual error — continue others */ }
-        setUploadProgress(p => ({
-          ...p,
-          done: p.done + 1,
-          current: p.current.filter(n => n !== name),
-        }))
+          updateItem(name, { status: 'done' })
+        } catch {
+          updateItem(name, { status: 'error' })
+        }
         await loadDocs()
       }))
       if (docNames.length === 1) setSelected(docNames[0])
@@ -133,9 +155,17 @@ export default function App() {
       await loadDocs()
     } finally {
       setFlag(false)
-      setUploadProgress({ total: 0, done: 0, current: [] })
+      // Pequeno delay pra mostrar os checks verdes antes de sumir
+      setTimeout(() => setUploadProgress({ items: [], startedAt: null }), 1500)
     }
   }
+
+  // Tick pra atualizar ETA enquanto há batch ativo
+  useEffect(() => {
+    if (uploadProgress.startedAt === null) return
+    const t = setInterval(() => setBatchElapsed(Date.now() - (uploadProgress.startedAt as number)), 1000)
+    return () => clearInterval(t)
+  }, [uploadProgress.startedAt])
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -237,25 +267,92 @@ export default function App() {
 
         {/* Footer actions */}
         <div className="px-4 py-4 border-t border-white/10 space-y-2">
-          {(uploading || uploadingPerf) && (
-            <div className="bg-blue-400/20 rounded-lg px-3 py-2 space-y-1">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 border border-blue-300/50 border-t-blue-200 rounded-full animate-spin shrink-0" />
-                <p className="text-xs text-blue-200">
-                  {uploadProgress.total > 1
-                    ? `Processando ${uploadProgress.done}/${uploadProgress.total} PDFs`
-                    : uploadingPerf ? 'Modo Vision… pode levar 4-6 min' : 'Extraindo dados… pode levar 2-4 min'}
-                </p>
-              </div>
-              {uploadProgress.current.length > 0 && uploadProgress.total > 1 && (
-                <div className="pl-5 space-y-0.5">
-                  {uploadProgress.current.map(name => (
-                    <p key={name} className="text-[10px] text-blue-300/60 truncate">{name}</p>
-                  ))}
+          {uploadProgress.items.length > 0 && (() => {
+            const items = uploadProgress.items
+            const total = items.length
+            const done  = items.filter(i => i.status === 'done').length
+            const errs  = items.filter(i => i.status === 'error').length
+            const completed = done + errs
+            const pct = Math.round((completed / total) * 100)
+            // ETA simples: (elapsed / completed) * (total - completed); só mostra após 1+ concluído
+            const elapsedMs = batchElapsed
+            const etaMs = completed > 0 ? (elapsedMs / completed) * (total - completed) : 0
+            const etaText = etaMs > 0 && completed < total
+              ? (etaMs < 60_000 ? `~${Math.round(etaMs / 1000)}s` : `~${Math.round(etaMs / 60_000)} min`)
+              : null
+            // Item em destaque (primeiro processing/uploading); fallback pro primeiro queued
+            const headerLabel = total === 1
+              ? (uploadingPerf ? 'Processando (Modo Vision)' : 'Processando')
+              : 'Processando'
+            const VISIBLE_QUEUED = 3
+            const queued = items.filter(i => i.status === 'queued')
+            const visibleQueued = queued.slice(0, VISIBLE_QUEUED)
+            const hiddenQueued  = queued.length - visibleQueued.length
+            return (
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-3.5 text-white">
+                {/* Header */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[13px] font-medium">{headerLabel}</span>
+                    <span className="text-[11px] text-slate-400">
+                      {completed} de {total}
+                      {etaText && <> · {etaText} restantes</>}
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="h-1 bg-slate-800 rounded overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-300"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+                {/* Lista de itens */}
+                <ul className="text-[11px] leading-relaxed space-y-0.5">
+                  {/* Concluídos (cinza + check) */}
+                  {items.filter(i => i.status === 'done').map(it => (
+                    <li key={it.name} className="flex items-center gap-1.5 text-slate-500">
+                      <svg className="w-3 h-3 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="flex-1 truncate">{it.name}</span>
+                    </li>
+                  ))}
+                  {/* Erros */}
+                  {items.filter(i => i.status === 'error').map(it => (
+                    <li key={it.name} className="flex items-center gap-1.5 text-red-400">
+                      <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      <span className="flex-1 truncate">{it.name}</span>
+                    </li>
+                  ))}
+                  {/* Em uploading/processing (branco + spinner) */}
+                  {items.filter(i => i.status === 'uploading' || i.status === 'processing').map(it => (
+                    <li key={it.name} className="flex items-center gap-1.5 text-white">
+                      <span className="inline-block w-2.5 h-2.5 border-[1.5px] border-current border-t-transparent rounded-full animate-spin shrink-0" />
+                      <span className="flex-1 truncate">{it.name}</span>
+                      <span className="text-[10px] text-slate-400">{it.status === 'uploading' ? 'enviando' : 'extraindo'}</span>
+                    </li>
+                  ))}
+                  {/* Queued visíveis (relógio, sem X — cancelamento não implementado) */}
+                  {visibleQueued.map(it => (
+                    <li key={it.name} className="flex items-center gap-1.5 text-slate-400">
+                      <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="flex-1 truncate">{it.name}</span>
+                    </li>
+                  ))}
+                  {hiddenQueued > 0 && (
+                    <li className="text-[11px] text-slate-500 pt-1">
+                      + {hiddenQueued} documento{hiddenQueued !== 1 ? 's' : ''} na fila
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )
+          })()}
           {uploadError && (
             <div className="bg-red-500/20 rounded-lg px-3 py-2">
               <p className="text-xs text-red-300">{uploadError}</p>
