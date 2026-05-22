@@ -167,16 +167,49 @@ export default function App() {
     return () => clearInterval(t)
   }, [uploadProgress.startedAt])
 
+  // Modal de aviso quando arquivos batem com docs já submetidos
+  const [pendingUpload, setPendingUpload] = useState<{
+    files: File[]
+    endpoint: string
+    setFlag: (v: boolean) => void
+    submittedDocs: { name: string; submetido_em: string | null }[]
+  } | null>(null)
+
+  function checkSubmittedConflicts(files: File[]) {
+    const submittedByName = new Map(
+      docs.filter(d => d.status === 'submetido').map(d => [d.document_name, d.submetido_em])
+    )
+    return files
+      .filter(f => submittedByName.has(f.name))
+      .map(f => ({ name: f.name, submetido_em: submittedByName.get(f.name) ?? null }))
+  }
+
+  async function dispatchUpload(files: File[], endpoint: string, setFlag: (v: boolean) => void) {
+    const conflicts = checkSubmittedConflicts(files)
+    if (conflicts.length > 0) {
+      setPendingUpload({ files, endpoint, setFlag, submittedDocs: conflicts })
+      return
+    }
+    await processFiles(files, endpoint, setFlag)
+  }
+
+  async function confirmPendingUpload() {
+    if (!pendingUpload) return
+    const { files, endpoint, setFlag } = pendingUpload
+    setPendingUpload(null)
+    await processFiles(files, endpoint, setFlag)
+  }
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    await processFiles(files, '/api/documents/upload', setUploading)
+    await dispatchUpload(files, '/api/documents/upload', setUploading)
   }
 
   async function handleUploadPerformance(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    await processFiles(files, '/api/documents/upload-performance', setUploadingPerf)
+    await dispatchUpload(files, '/api/documents/upload-performance', setUploadingPerf)
   }
 
   return (
@@ -421,6 +454,70 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Modal: arquivos batem com docs ja submetidos */}
+      {pendingUpload && (() => {
+        const { submittedDocs, files } = pendingUpload
+        const N = submittedDocs.length
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setPendingUpload(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setPendingUpload(null)
+              if (e.key === 'Enter') { e.preventDefault(); confirmPendingUpload() }
+            }}
+            tabIndex={-1}
+          >
+            <div
+              className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 text-gray-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold">
+                    {N === 1 ? 'Este documento já foi submetido' : `${N} documentos já foram submetidos`}
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Subir uma nova versão vai trazê-{N === 1 ? 'lo' : 'los'} de volta para <strong>Pendentes</strong> para nova revisão.
+                    Suas correções e confirmações anteriores são <strong>preservadas</strong>.
+                  </p>
+                </div>
+              </div>
+              <ul className="border border-gray-100 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto text-xs mb-4">
+                {submittedDocs.map(d => (
+                  <li key={d.name} className="flex items-center justify-between px-3 py-2 gap-3">
+                    <span className="flex-1 truncate" title={d.name}>{d.name}</span>
+                    <span className="text-gray-400 tabular-nums shrink-0">
+                      {d.submetido_em ? d.submetido_em.substring(0, 10).split('-').reverse().join('/') : '—'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setPendingUpload(null)}
+                  className="text-sm px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmPendingUpload}
+                  autoFocus
+                  className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-semibold"
+                >
+                  Continuar com {files.length} arquivo{files.length !== 1 ? 's' : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

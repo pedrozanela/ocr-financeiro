@@ -1,7 +1,7 @@
 import io
 import os
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request
-from ..config import get_client, PDF_VOLUME_PATH, RESULTS_TABLE, UC_CATALOG, UC_SCHEMA, VISION_JOB_ID
+from ..config import get_client, PDF_VOLUME_PATH, RESULTS_TABLE, RESULTS_FINAL_TABLE, UC_CATALOG, UC_SCHEMA, VISION_JOB_ID
 from ..db import execute_update
 
 router = APIRouter()
@@ -57,6 +57,15 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         print(f"[upload] WARNING: could not delete existing result for {document_name}: {e}")
 
+    # 2b. Remove resultados_final — doc volta para Pendentes (revisoes preservadas)
+    try:
+        execute_update(
+            f"DELETE FROM {RESULTS_FINAL_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+    except Exception as e:
+        print(f"[upload] WARNING: could not delete existing resultados_final for {document_name}: {e}")
+
     # 3. Trigger the batch_job to process only this PDF
     try:
         job_id = _get_batch_job_id(client)
@@ -98,6 +107,15 @@ async def upload_document_performance(request: Request, file: UploadFile = File(
         )
     except Exception as e:
         print(f"[upload-performance] WARNING: could not delete existing result for {document_name}: {e}")
+
+    # 2b. Remove resultados_final — doc volta para Pendentes (revisoes preservadas)
+    try:
+        execute_update(
+            f"DELETE FROM {RESULTS_FINAL_TABLE} WHERE document_name = :name",
+            [{"name": "name", "value": document_name}],
+        )
+    except Exception as e:
+        print(f"[upload-performance] WARNING: could not delete existing resultados_final for {document_name}: {e}")
 
     # 3. Trigger vision job via run_now (job ID: VISION_JOB_ID)
     try:
